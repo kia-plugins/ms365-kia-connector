@@ -1,0 +1,19 @@
+{
+  "id": "kia.ms365",
+  "name": "Microsoft 365",
+  "version": "2.0.0",
+  "engine": "^1.0.0",
+  "entry": "dist/index.js",
+  "caps": [
+    "net"
+  ],
+  "contributes": {
+    "sources": [
+      {
+        "id": "ms365",
+        "oauth": "microsoft"
+      }
+    ]
+  },
+  "icon": "icon.png"
+}
