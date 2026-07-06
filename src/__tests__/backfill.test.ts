@@ -78,6 +78,87 @@ describe('backfill: enumerate + ingest', () => {
     expect(calls.some((u) => u.includes('deleteditems'))).toBe(true);
   });
 
+  it('checkpoints a resume cursor after every delta page, and a crash mid-folder resumes from the last page fetched without re-fetching it', async () => {
+    // A 3-page inbox feed (p1 -> p2 -> p3-with-deltaLink), sentitems finishes
+    // in one page. This proves two things the old per-FOLDER checkpoint
+    // (yielded only once, after `walkGraphDelta` fully resolved) could not:
+    // (1) a mid-walk cursor appears after page 1, well before the folder's
+    //     deltaLink is ever reached, and (2) resuming a crashed run from that
+    //     cursor fetches ONLY the remaining pages — page 1 is never re-fetched.
+    const world = {
+      junkFolderId: 'JUNK',
+      trashFolderId: 'TRASH',
+      urls: {
+        [INBOX_START]: {
+          value: [{ id: 'm1', conversationId: 'C1', parentFolderId: 'inbox', isDraft: false }],
+          '@odata.nextLink': 'https://graph.microsoft.com/v1.0/inbox-p2',
+        },
+        'https://graph.microsoft.com/v1.0/inbox-p2': {
+          value: [{ id: 'm2', conversationId: 'C2', parentFolderId: 'inbox', isDraft: false }],
+          '@odata.nextLink': 'https://graph.microsoft.com/v1.0/inbox-p3',
+        },
+        'https://graph.microsoft.com/v1.0/inbox-p3': {
+          value: [{ id: 'm3', conversationId: 'C3', parentFolderId: 'inbox', isDraft: false }],
+          '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/inbox-final',
+        },
+        [SENT_START]: {
+          value: [],
+          '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/sent-final',
+        },
+      },
+      conversations: {
+        C1: [graphMsg({ id: 'm1', conversationId: 'C1' })],
+        C2: [graphMsg({ id: 'm2', conversationId: 'C2' })],
+        C3: [graphMsg({ id: 'm3', conversationId: 'C3' })],
+      },
+    };
+
+    // --- First run: abandon it ("crash") right after page 1's checkpoint ---
+    const { source: firstRun, calls: firstCalls } = makeSource(world);
+    const { session: firstSession } = makeSession({ config: { tenantKind: 'personal' } });
+    const gen = firstRun.pull(firstSession, null)[Symbol.asyncIterator]();
+
+    const firstBatch = (await gen.next()).value as B;
+    // The very first yielded batch is already a mid-folder checkpoint: the
+    // inbox delta walk has only consumed page 1 (deltaLink not yet reached),
+    // proving checkpoints are produced per-page, not per-folder.
+    expect(firstBatch.phase).toBe('backfill');
+    expect(firstBatch.items).toEqual([]);
+    expect(firstBatch.cursor).toEqual({
+      phase: 'enumerate',
+      folders: {
+        inbox: { next: 'https://graph.microsoft.com/v1.0/inbox-p2' },
+        sentitems: { next: SENT_START },
+      },
+      pending: ['C1'],
+    });
+    expect(firstCalls).toEqual([
+      'https://graph.microsoft.com/v1.0/me/mailFolders/junkemail',
+      'https://graph.microsoft.com/v1.0/me/mailFolders/deleteditems',
+      INBOX_START,
+    ]);
+    // Abandon the generator here — this is the simulated crash. Page 2 and 3
+    // are never fetched by this run.
+    await gen.return?.();
+
+    // --- Second run: fresh source/session, resumed from the captured cursor ---
+    const { source: secondRun, calls: secondCalls } = makeSource(world);
+    const { session: secondSession } = makeSession({ config: { tenantKind: 'personal' } });
+    const batches = (await collect(
+      secondRun.pull(secondSession, firstBatch.cursor),
+    )) as B[];
+
+    // Page 1's URL must never be re-fetched by the resumed run.
+    expect(secondCalls).not.toContain(INBOX_START);
+    expect(secondCalls).toContain('https://graph.microsoft.com/v1.0/inbox-p2');
+    expect(secondCalls).toContain('https://graph.microsoft.com/v1.0/inbox-p3');
+
+    const allIds = batches.flatMap((b) => b.items.map((i) => i.conversationId));
+    // C1 (from the abandoned first run's page) is still pending and gets
+    // ingested; C2 and C3 come from the resumed pages.
+    expect(allIds.sort()).toEqual(['C1', 'C2', 'C3']);
+  });
+
   it('resumes from a saved enumerate cursor', async () => {
     const { source } = makeSource({
       junkFolderId: 'JUNK',

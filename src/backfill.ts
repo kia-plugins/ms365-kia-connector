@@ -15,8 +15,8 @@ import {
   initialDeltaUrl,
   MAIL_FOLDERS,
   resolveExcludedFolderIds,
-  walkGraphDelta,
   type FolderState,
+  type GraphDeltaPage,
   type MailFolder,
   type Ms365DeltaMessage,
 } from './graph-api';
@@ -44,10 +44,14 @@ interface EnumerateResult {
 
 /**
  * Runs (or resumes) the per-folder delta enumeration. Yields an interim
- * `backfill` batch (no items) after each folder finishes enumerating, so a
- * crash mid-enumeration resumes from the last folder boundary rather than
- * restarting every folder. Returns the fully-enumerated folder states and
- * pending conversationId list once every folder has captured its deltaLink.
+ * `backfill` batch (no items) after EVERY Graph delta page — not just when a
+ * folder finishes enumerating — so a crash mid-folder resumes from that
+ * page's `nextLink` instead of restarting the whole folder from
+ * `initialDeltaUrl`. This is a page-granular parity fix for (and slight
+ * improvement over) legacy `ms365/backfill.ts`'s `enumerateConversations`,
+ * which persisted a resume cursor after every delta page it walked. Returns
+ * the fully-enumerated folder states and pending conversationId list once
+ * every folder has captured its deltaLink.
  */
 async function* enumerate(
   client: GraphClient,
@@ -65,29 +69,31 @@ async function* enumerate(
     if (session.signal.aborted) return { folders, pending: [...conversationIds] };
     const state = folders[folder];
     if ('delta' in state) continue; // resumed folder already fully enumerated
-    const deltaLink = await walkGraphDelta<Ms365DeltaMessage>(
-      client,
-      state.next,
-      (page) => {
-        accumulate(page, excluded, conversationIds);
-        if (!page['@odata.deltaLink'] && page['@odata.nextLink']) {
-          folders[folder] = { next: page['@odata.nextLink'] };
-        }
-      },
-      session.signal,
-    );
-    if (session.signal.aborted) return { folders, pending: [...conversationIds] };
-    if (!deltaLink) {
+    let url: string | undefined = state.next;
+    while (url) {
+      if (session.signal.aborted) return { folders, pending: [...conversationIds] };
+      const page: GraphDeltaPage<Ms365DeltaMessage> =
+        await client.request<GraphDeltaPage<Ms365DeltaMessage>>(url);
+      accumulate(page, excluded, conversationIds);
+      const deltaLink = page['@odata.deltaLink'];
+      const nextLink = page['@odata.nextLink'];
+      if (!deltaLink && !nextLink) break; // malformed page — the error below fires
+      folders[folder] = deltaLink ? { delta: deltaLink } : { next: nextLink as string };
+      url = deltaLink ? undefined : nextLink;
+      // Checkpoint after this page: cursor + (empty) items commit together,
+      // so a crash before the next fetch resumes from `folders[folder]`
+      // above rather than from the folder's initialDeltaUrl.
+      yield {
+        phase: 'backfill',
+        items: [],
+        cursor: { phase: 'enumerate', folders, pending: [...conversationIds] },
+      };
+    }
+    if (!('delta' in folders[folder])) {
       throw new Error(
         `ms365: delta enumeration for folder ${folder} ended without a nextLink or deltaLink`,
       );
     }
-    folders[folder] = { delta: deltaLink };
-    yield {
-      phase: 'backfill',
-      items: [],
-      cursor: { phase: 'enumerate', folders, pending: [...conversationIds] },
-    };
   }
   return { folders, pending: [...conversationIds] };
 }
