@@ -1,8 +1,8 @@
 /**
  * Microsoft Graph mail endpoints used by this connector: the folder-delta
  * enumeration walk (`walkGraphDelta`/`accumulate`), full-conversation message
- * fetch, and the junk/deleted folder-id probe — ported from legacy
- * alpha-cent's `ms365/client.ts` + `ms-shared/walk-delta.ts`, reshaped onto
+ * fetch, and the junk/deleted folder-id probe — ported from the legacy
+ * v1 repo's `ms365/client.ts` + `ms-shared/walk-delta.ts`, reshaped onto
  * `GraphClient` (host `net.fetch`) instead of the legacy positional
  * `graphFetch(url, getToken)` function.
  */

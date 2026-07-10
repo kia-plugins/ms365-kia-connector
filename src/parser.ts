@@ -1,6 +1,6 @@
 /**
  * Microsoft Graph mail message shapes and parsing, ported verbatim from
- * legacy alpha-cent `src/main/connectors/ms365/parser.ts` (itself sharing
+ * the legacy v1 repo's `src/main/connectors/ms365/parser.ts` (itself sharing
  * `ParsedEmail`/`ParsedAttachment` with `email-shared/types.ts`, inlined here
  * — this connector, like the gmail v2 port, is self-contained). Pure — no
  * network, no I/O.
