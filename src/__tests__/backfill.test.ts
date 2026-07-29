@@ -7,7 +7,7 @@
  */
 import { createMs365Source } from '../source';
 import { initialDeltaUrl } from '../graph-api';
-import type { Batch } from '../kiagent-contracts';
+import type { Batch } from '@kiagent/connector-sdk';
 import type { Ms365Cursor } from '../cursor';
 import type { Ms365ThreadItem } from '../to-document';
 import { collect, graphFetch, graphMsg, instantClock, makeHost, makeSession } from '../testing/harness';

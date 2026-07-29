@@ -13,7 +13,7 @@ import type {
   Credentials,
   HostFor,
   Session,
-} from '../kiagent-contracts';
+} from '@kiagent/connector-sdk';
 import type { NetFetch } from '../graph-client';
 import type { GraphMessage } from '../parser';
 

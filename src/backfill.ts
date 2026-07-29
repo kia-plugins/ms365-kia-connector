@@ -7,7 +7,7 @@
  * re-ingesting an already-emitted conversationId just re-upserts the same
  * document).
  */
-import type { Batch, Session } from './kiagent-contracts';
+import type { Batch, Session } from '@kiagent/connector-sdk';
 import type { Ms365Cursor } from './cursor';
 import {
   accumulate,

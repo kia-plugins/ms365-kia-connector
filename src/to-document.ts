@@ -1,4 +1,4 @@
-import type { DocumentInput } from './kiagent-contracts';
+import type { DocumentInput } from '@kiagent/connector-sdk';
 import { parseGraphMessage, type GraphMessage } from './parser';
 
 /** Shared with the gmail v2 builtin's document-type convention — this

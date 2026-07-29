@@ -1,4 +1,4 @@
-import type { ExtensionModule } from './kiagent-contracts';
+import type { ExtensionModule } from '@kiagent/connector-sdk';
 import { createMs365Source } from './source';
 
 const mod = {

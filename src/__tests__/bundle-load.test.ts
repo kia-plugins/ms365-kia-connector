@@ -1,44 +1,18 @@
 /**
  * Smoke test for the bundled dist/index.js — proves the CJS/ESM dual export
  * in src/index.ts (`export default mod; module.exports = mod;`) against
- * actual esbuild output (see google-docs-kia-connector's identical test).
+ * actual esbuild output. The build + require + activate() plumbing is the
+ * SDK kit's `bundleLoadSmoke`, shared by every connector repo.
  */
-import { execSync } from 'node:child_process';
 import { join } from 'node:path';
-import type { HostFor } from '../kiagent-contracts';
+import { bundleLoadSmoke } from '@kiagent/connector-sdk/testing';
 
 describe('dist bundle loads standalone', () => {
   it('require()s dist/index.js and activate() returns the ms365 source', async () => {
-    const root = join(__dirname, '..', '..');
-    execSync('npm run build', { cwd: root });
-
-    // Bare Node child-process require — proves the bundle loads outside
-    // jest's module registry, the way the extension host child loads it.
-    const out = execSync(
-      'node -e "const m=require(\'./dist/index.js\');const e=m.default??m;' +
-        "if(typeof e.activate!=='function')throw new Error('no activate');" +
-        'console.log(\'activate:\'+typeof e.activate)"',
-      { cwd: root },
-    ).toString();
-    expect(out).toContain('activate:function');
-
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require(join(root, 'dist', 'index.js'));
-    const entry = mod.default ?? mod;
-    expect(typeof entry.activate).toBe('function');
-
-    const unused = () => {
-      throw new Error('unused in this smoke test');
-    };
-    const host: HostFor<'net'> = {
-      self: { id: 'kia.ms365', dataDir: '/tmp' },
-      log: () => {},
-      net: { fetch: unused },
-    };
-    const result = await entry.activate(host);
-
-    expect(result.sources).toHaveLength(1);
-    expect(result.sources?.[0]?.descriptor.id).toBe('ms365');
-    expect(result.sources?.[0]?.descriptor.auth).toBe('oauth');
+    await bundleLoadSmoke({
+      root: join(__dirname, '..', '..'),
+      selfId: 'kia.ms365',
+      sourceIds: ['ms365'],
+    });
   }, 30_000);
 });

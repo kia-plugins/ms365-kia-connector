@@ -33,7 +33,7 @@ import type {
   HostFor,
   Session,
   Source,
-} from './kiagent-contracts';
+} from '@kiagent/connector-sdk';
 import { GraphClient, statusOf, type GraphClientDeps } from './graph-client';
 import { GRAPH_BASE } from './graph-api';
 import type { Ms365Cursor } from './cursor';
