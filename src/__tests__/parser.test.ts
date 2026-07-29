@@ -1,5 +1,5 @@
 /**
- * Ported from legacy alpha-cent `src/__tests__/ms365-parser.test.ts` —
+ * Ported from the legacy v1 repo's `src/__tests__/ms365-parser.test.ts` —
  * parseGraphMessage is unchanged from v1 (see src/parser.ts's module doc).
  */
 import { parseGraphMessage } from '../parser';

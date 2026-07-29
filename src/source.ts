@@ -5,7 +5,7 @@
  * decode (v2 has no id_token to read), per-folder delta backfill + delta
  * sweep, and a pure `toDocument`.
  *
- * Ported from alpha-cent's v1 connector (`src/main/connectors/ms365/*.ts` +
+ * Ported from the v1 connector (`src/main/connectors/ms365/*.ts` +
  * `ms-shared/graph-fetch.ts` + `ms-shared/walk-delta.ts`): `client.ts`'s
  * `resolveExcludedFolderIds` (junk/deleted folders excluded from every
  * sweep), `backfill.ts`'s two-phase enumerate/ingest, `delta.ts`'s

@@ -1,5 +1,5 @@
 /**
- * v2 port of the v1 ms365 Graph client (alpha-cent
+ * v2 port of the v1 ms365 Graph client (v1 repo
  * `src/main/connectors/ms-shared/graph-fetch.ts` +
  * `src/main/connectors/http-shared/bearer-fetch.ts`), reshaped to the
  * google-docs-kia-connector `DriveClient` idiom: a class over the host's
