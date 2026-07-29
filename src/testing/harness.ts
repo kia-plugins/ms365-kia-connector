@@ -1,8 +1,14 @@
 /**
- * Shared offline test harness: scripted host-shaped fetch responses (status /
- * statusText / lowercase headers / body: Uint8Array — see src/graph-client.ts),
- * a fake Graph world router, and fakes for Session / AuthChannel. No network,
- * no timers (client sleep/random are injected as instant/zero by the tests).
+ * Shared offline test harness: what is left of it after the generic half moved
+ * to `@kiagent/connector-sdk/testing` (which was itself generalized FROM this
+ * file). The kit now owns host-shaped responses (`jsonRes`), the exact-URL
+ * scripted-fetch skeleton with its per-URL call counts (`scriptedFetch`), and
+ * the zero-wait clock (`instantClock`); what stays here is Graph-specific: the
+ * `GraphWorld` fixture shape, its path router, and the Session / AuthChannel /
+ * host fakes carrying this connector's own defaults.
+ *
+ * No network, no timers (client sleep/random are injected as instant/zero by
+ * the tests).
  *
  * Lives outside src/__tests__ so jest's default testMatch does not treat it
  * as a suite. Never bundled: build.mjs only follows imports from index.ts.
@@ -14,35 +20,16 @@ import type {
   HostFor,
   Session,
 } from '@kiagent/connector-sdk';
+import type { HostResponse } from '@kiagent/connector-sdk/http';
+import { jsonRes, scriptedFetch } from '@kiagent/connector-sdk/testing';
 import type { NetFetch } from '../graph-client';
 import type { GraphMessage } from '../parser';
 
-export interface HostResponse {
-  status: number;
-  statusText: string;
-  headers: Record<string, string>;
-  body: Uint8Array;
-}
-
-export const jsonRes = (
-  status: number,
-  body: unknown,
-  headers: Record<string, string> = {},
-): HostResponse => ({
-  status,
-  statusText: '',
-  headers,
-  body: new TextEncoder().encode(JSON.stringify(body)),
-});
-
-const isHostResponse = (v: unknown): v is HostResponse =>
-  typeof v === 'object' &&
-  v !== null &&
-  typeof (v as HostResponse).status === 'number' &&
-  (v as HostResponse).body instanceof Uint8Array;
-
-/** Instant clock + zero jitter for the source/client test seam. */
-export const instantClock = { sleep: async () => {}, random: () => 0 };
+/** Re-exported so this harness stays the single import site for the tests:
+ *  the generic pieces now come from the SDK kit, the Graph-specific ones
+ *  below are still local. */
+export { jsonRes, instantClock } from '@kiagent/connector-sdk/testing';
+export type { HostResponse } from '@kiagent/connector-sdk/http';
 
 interface ConversationPageFx {
   value?: GraphMessage[];
@@ -83,15 +70,17 @@ export function graphFetch(world: GraphWorld = {}): {
   fetchFn: NetFetch;
   calls: string[];
 } {
-  const calls: string[] = [];
-  const counts = new Map<string, number>();
-  const fetchFn: NetFetch = async (rawUrl) => {
-    const urlStr = String(rawUrl);
-    calls.push(urlStr);
-    const count = counts.get(urlStr) ?? 0;
-    counts.set(urlStr, count + 1);
-    const url = new URL(urlStr);
-
+  /** The Graph-domain router, layered onto the SDK kit's `scriptedFetch` as
+   *  its `custom` callback — which the kit consults BEFORE its exact-URL
+   *  table, so the fall-through order is the original's exactly:
+   *  `world.custom` → these Graph paths → `world.urls` → "unhandled url".
+   *
+   *  Returning `undefined` on no match is load-bearing: throwing here would
+   *  short-circuit the kit before it ever reads `world.urls` (which is what
+   *  the delta/backfill fixtures are built from). The two in-path throws
+   *  below are deliberate — they fire only once a request HAS matched
+   *  `/me/messages` but carries no fixture. */
+  const route = (url: URL, count: number): HostResponse | undefined => {
     if (world.custom) {
       const r = world.custom(url, count);
       if (r) return r;
@@ -137,10 +126,10 @@ export function graphFetch(world: GraphWorld = {}): {
       }
       return jsonRes(200, body);
     }
-    const v = world.urls?.[urlStr];
-    if (v !== undefined) return isHostResponse(v) ? v : jsonRes(200, v);
-    throw new Error(`fake graph: unhandled url ${urlStr}`);
+    return undefined;
   };
+
+  const { fetchFn, calls } = scriptedFetch({ urls: world.urls, custom: route });
   return { fetchFn, calls };
 }
 
