@@ -2,7 +2,7 @@
   "id": "kia.ms365",
   "name": "Microsoft 365",
   "version": "2.0.3",
-  "engine": "^1.2.0",
+  "engine": ">=1.2.0 <3.0.0",
   "entry": "dist/index.js",
   "caps": [
     "net"
@@ -13,7 +13,8 @@
         "id": "ms365",
         "oauth": "microsoft"
       }
-    ]
+    ],
+    "senders": []
   },
   "icon": "icon.png"
 }
