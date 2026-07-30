@@ -5,12 +5,9 @@
  * — this connector, like the gmail v2 port, is self-contained). Pure — no
  * network, no I/O.
  *
- * NOTE on attachments: `collectAttachments` is ported faithfully and unit
- * tested, but is DEAD CODE END-TO-END in this connector, same as in legacy —
- * see backfill.ts's module doc for why (the Graph `$select` that fetches
- * conversation messages never requests the `attachments` field, so
- * `msg.attachments` is always `undefined` in practice and this always
- * resolves to `[]`).
+ * Attachments are not ingested: the Graph `$select` that fetches
+ * conversation messages never requests the `attachments` field (see
+ * graph-api.ts's CONV_SELECT note).
  */
 
 export interface GraphEmailAddress {
@@ -19,14 +16,6 @@ export interface GraphEmailAddress {
 }
 export interface GraphRecipient {
   emailAddress?: GraphEmailAddress;
-}
-export interface GraphAttachmentSummary {
-  id?: string;
-  '@odata.type'?: string;
-  name?: string;
-  contentType?: string;
-  size?: number;
-  contentBytes?: string; // present only when fetched via /attachments
 }
 export interface GraphInternetHeader {
   name?: string;
@@ -47,16 +36,6 @@ export interface GraphMessage {
   internetMessageHeaders?: GraphInternetHeader[];
   parentFolderId?: string;
   isDraft?: boolean;
-  attachments?: GraphAttachmentSummary[];
-}
-
-export interface ParsedAttachment {
-  messageId: string;
-  partId: string;
-  attachmentId: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
 }
 
 export interface ParsedEmail {
@@ -70,7 +49,6 @@ export interface ParsedEmail {
   body: string;
   htmlBody: string | null;
   headers: Record<string, string>;
-  attachments: ParsedAttachment[];
 }
 
 export function parseGraphMessage(msg: GraphMessage): ParsedEmail {
@@ -90,7 +68,6 @@ export function parseGraphMessage(msg: GraphMessage): ParsedEmail {
     body,
     htmlBody,
     headers,
-    attachments: collectAttachments(msg.id ?? '', msg.attachments ?? []),
   };
 }
 
@@ -117,25 +94,3 @@ function parseDate(iso: string | undefined): Date {
   return Number.isNaN(d.getTime()) ? new Date(0) : d;
 }
 
-function collectAttachments(
-  graphMessageId: string,
-  atts: GraphAttachmentSummary[],
-): ParsedAttachment[] {
-  const out: ParsedAttachment[] = [];
-  for (const a of atts) {
-    // Only fileAttachment yields raw bytes via contentBytes. itemAttachment
-    // (nested emails) and referenceAttachment (cloud links) are skipped — the
-    // first would need recursive ingest, the second has no bytes to fetch.
-    if (a['@odata.type'] !== '#microsoft.graph.fileAttachment') continue;
-    if (!a.id) continue;
-    out.push({
-      messageId: graphMessageId,
-      partId: '',
-      attachmentId: a.id,
-      filename: a.name ?? '',
-      mimeType: a.contentType ?? 'application/octet-stream',
-      sizeBytes: a.size ?? 0,
-    });
-  }
-  return out;
-}

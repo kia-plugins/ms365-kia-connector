@@ -28,7 +28,6 @@ describe('ms365 parseGraphMessage', () => {
     expect(parsed.htmlBody).toBeNull();
     expect(parsed.date.toISOString()).toBe('2026-05-20T10:00:00.000Z');
     expect(parsed.headers['auto-submitted']).toBe('no');
-    expect(parsed.attachments).toEqual([]);
   });
 
   it('keeps htmlBody when contentType is html and body empty', () => {
@@ -77,30 +76,4 @@ describe('ms365 parseGraphMessage', () => {
     expect(parsed.to).toEqual(['b@x.com']);
   });
 
-  it('drops non-fileAttachment entries and entries without an id (dead code today — see module doc)', () => {
-    const parsed = parseGraphMessage({
-      id: 'M1',
-      attachments: [
-        { '@odata.type': '#microsoft.graph.itemAttachment', id: 'A0', name: 'nested.eml' },
-        { '@odata.type': '#microsoft.graph.fileAttachment', name: 'no-id.pdf' },
-        {
-          '@odata.type': '#microsoft.graph.fileAttachment',
-          id: 'A1',
-          name: 'doc.pdf',
-          contentType: 'application/pdf',
-          size: 42,
-        },
-      ],
-    });
-    expect(parsed.attachments).toEqual([
-      {
-        messageId: 'M1',
-        partId: '',
-        attachmentId: 'A1',
-        filename: 'doc.pdf',
-        mimeType: 'application/pdf',
-        sizeBytes: 42,
-      },
-    ]);
-  });
 });

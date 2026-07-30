@@ -113,12 +113,7 @@ export async function resolveExcludedFolderIds(
 }
 
 // $select for the full conversation fetch. Deliberately excludes
-// `attachments` — see parser.ts's module doc: this omission exists in the
-// legacy connector too (a latent gap — the ms365 thread-builder wiring for
-// attachment ingestion is unreachable because this field was never
-// selected), and this port preserves that OBSERVED behavior rather than the
-// unreachable, apparently-intended-but-broken design. See README/report for
-// the full writeup.
+// `attachments` — this connector does not ingest attachment bytes.
 const CONV_SELECT =
   'id,subject,from,toRecipients,ccRecipients,bccRecipients,' +
   'receivedDateTime,internetMessageHeaders,body,bodyPreview,' +
