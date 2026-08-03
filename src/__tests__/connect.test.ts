@@ -44,7 +44,7 @@ describe('connect', () => {
     expect(res.config).toEqual({ tenantKind: 'personal' });
   });
 
-  it.each([401, 403, 404])(
+  it.each([400, 401, 403, 404, 405])(
     'treats a %d on /organization as a personal account, not an error',
     async (status) => {
       const { fetchFn } = graphFetch({
@@ -57,6 +57,40 @@ describe('connect', () => {
       expect(res.config).toEqual({ tenantKind: 'personal' });
     },
   );
+
+  // The exact shape a real MSA (personal) account returns. This is the case
+  // that failed connect for every personal account before 400 was treated as
+  // personal — keep it as a literal regression guard alongside the status
+  // sweep above.
+  it('treats the real MSA 400 BadRequest body on /organization as personal', async () => {
+    const { fetchFn } = graphFetch({
+      about: { mail: 'me@outlook.com' },
+      organization: {
+        status: 400,
+        body: {
+          error: {
+            code: 'BadRequest',
+            message:
+              'This API is not supported for MSA accounts (no addressUrl for Microsoft.DirectoryServices,False).',
+          },
+        },
+      },
+    });
+    const source = createMs365Source(makeHost(fetchFn), instantClock);
+    const { auth } = makeAuth();
+    const res = await source.connect(auth);
+    expect(res.config).toEqual({ tenantKind: 'personal' });
+  });
+
+  it('propagates a 429 on /organization — a retry could still classify it', async () => {
+    const { fetchFn } = graphFetch({
+      about: { mail: 'me@corp.com' },
+      organization: { status: 429, body: {} },
+    });
+    const source = createMs365Source(makeHost(fetchFn), instantClock);
+    const { auth } = makeAuth();
+    await expect(source.connect(auth)).rejects.toThrow(/429/);
+  });
 
   it('classifies a non-empty /organization value as work', async () => {
     const { fetchFn } = graphFetch({

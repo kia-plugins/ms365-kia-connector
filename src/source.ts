@@ -61,11 +61,19 @@ function tenantKindOf(session: Session): TenantKind {
 
 /**
  * `GET /organization` in place of legacy's id_token `tid`-claim decode:
- * personal (MSA) accounts have no organization to enumerate and get a
- * 401/403/404 (or an empty `value`); a work/school tenant returns at least
- * one organization row. A 401 here specifically is NOT a reauth signal — see
+ * personal (MSA) accounts have no organization to enumerate and fail the call
+ * (or return an empty `value`); a work/school tenant returns at least one
+ * organization row. A 401 here specifically is NOT a reauth signal — see
  * `statusOf`'s doc comment for why it is safe to treat like 403/404 at this
  * call site.
+ *
+ * Every non-retryable 4xx counts as personal, not just 401/403/404: MSA
+ * accounts answer 400 BadRequest — "This API is not supported for MSA accounts
+ * (no addressUrl for Microsoft.DirectoryServices,False)" — which an
+ * enumerated allow-list missed, failing connect outright for every personal
+ * account. This is a heuristic probe with a safe fallback, so the only
+ * failures worth propagating are the ones a retry could fix (429/5xx, per
+ * `isRetryableGraphFailure`).
  */
 async function probeTenantKind(client: GraphClient): Promise<TenantKind> {
   try {
@@ -73,7 +81,9 @@ async function probeTenantKind(client: GraphClient): Promise<TenantKind> {
     return Array.isArray(r.value) && r.value.length > 0 ? 'work' : 'personal';
   } catch (e) {
     const status = statusOf(e);
-    if (status === 401 || status === 403 || status === 404) return 'personal';
+    if (status !== undefined && status >= 400 && status < 500 && status !== 429) {
+      return 'personal';
+    }
     throw e;
   }
 }
