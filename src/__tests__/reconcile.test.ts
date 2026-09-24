@@ -62,8 +62,8 @@ describe('reconcile', () => {
     await expect(run()).rejects.toThrow(/500/);
   });
 
-  it('a leaf folder deleted upstream mid-pass is skipped, not fatal', async () => {
-    const { run, logs } = reconcile({
+  it('a folder that 404s between discovery and listing fails the pass — never read as empty', async () => {
+    const { run } = reconcile({
       folders: {
         ...DEFAULT_FOLDERS,
         children: {
@@ -75,8 +75,7 @@ describe('reconcile', () => {
       custom: (url) =>
         url.pathname.endsWith('/LEAF/messages') ? jsonRes(404, { error: { code: 'ErrorItemNotFound' } }) : undefined,
     });
-    expect(ids(await run())).toEqual(['C-both', 'C-inbox', 'C-inbox2']);
-    expect(logs.some((l) => l.level === 'warn' && l.msg.includes('LEAF'))).toBe(true);
+    await expect(run()).rejects.toThrow(/ErrorItemNotFound/);
   });
 
   it('a mailbox-level 404 on a folder listing rejects the pass', async () => {

@@ -137,15 +137,14 @@ async function leavingRefs(
   client: GraphClient,
   prior: ReadonlyMap<string, string>,
   next: ReadonlyMap<string, string>,
-  warn: (m: string) => void,
 ): Promise<ExternalRef[]> {
   const leavingFolders = [...prior.keys()].filter((id) => !next.has(id));
   if (leavingFolders.length === 0) return []; // pure widening: no listing
   const leaving = new Set<string>();
-  for await (const ids of listConversationIds(client, leavingFolders, { warn })) {
+  for await (const ids of listConversationIds(client, leavingFolders)) {
     for (const id of ids) leaving.add(id);
   }
-  for await (const ids of listConversationIds(client, next.keys(), { warn })) {
+  for await (const ids of listConversationIds(client, next.keys())) {
     for (const id of ids) leaving.delete(id);
     if (leaving.size === 0) break;
   }
@@ -233,7 +232,6 @@ export function createMs365Source(
       let requests = 0;
       for await (const ids of listConversationIds(client, tracked.keys(), {
         signal: session.signal,
-        warn,
         onRequest: () => (requests += 1),
       })) {
         yield ids.map((externalId) => ({ externalId, type: EMAIL_THREAD_DOCUMENT_TYPE }));
@@ -297,7 +295,7 @@ export function createMs365Source(
       // A legacy account's first Save lists nothing: core grants the first
       // declaration a reconcile allowance, and that pass archives exactly
       // indexed − staying (spec §3.4).
-      const archiveRefs = prior.legacy ? [] : await leavingRefs(client, prior.tracked, next, warn);
+      const archiveRefs = prior.legacy ? [] : await leavingRefs(client, prior.tracked, next);
 
       const migrated = await loadCursor(client, session.account.cursor);
       return {
