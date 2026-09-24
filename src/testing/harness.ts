@@ -65,7 +65,7 @@ export interface GraphWorld {
    *  pages unless given as explicit pages (array of arrays), paged with a
    *  `pageToken` nextLink like `conversations`. A well-known name absent
    *  from `wellKnown` answers 404 (junkemail/deleteditems keep their own
-   *  fields above). */
+   *  fields above). Omitted → `DEFAULT_FOLDERS`. */
   folders?: {
     top: MailFolderNode[] | MailFolderNode[][];
     children?: Record<string, MailFolderNode[] | MailFolderNode[][]>;
@@ -113,18 +113,18 @@ export function graphFetch(world: GraphWorld = {}): {
     if (p === '/v1.0/me/mailFolders/deleteditems') {
       return jsonRes(200, { id: world.trashFolderId ?? 'TRASH' });
     }
-    const folders = world.folders;
-    if (folders && p === '/v1.0/me/mailFolders') {
+    const folders = world.folders ?? DEFAULT_FOLDERS;
+    if (p === '/v1.0/me/mailFolders') {
       return jsonRes(200, pageOf(url, folders.top));
     }
     const kids = /^\/v1\.0\/me\/mailFolders\/([^/]+)\/childFolders$/.exec(p);
-    if (folders && kids) {
+    if (kids) {
       const list = folders.children?.[decodeURIComponent(kids[1])];
       if (list === undefined) throw new Error(`fake graph: no children fixture for ${kids[1]}`);
       return jsonRes(200, pageOf(url, list));
     }
     const named = /^\/v1\.0\/me\/mailFolders\/([^/]+)$/.exec(p);
-    if (folders && named) {
+    if (named) {
       const hit = folders.wellKnown?.[decodeURIComponent(named[1])];
       return hit
         ? jsonRes(200, hit)
@@ -160,6 +160,17 @@ export function graphFetch(world: GraphWorld = {}): {
   const { fetchFn, calls } = scriptedFetch({ urls: world.urls, custom: route });
   return { fetchFn, calls };
 }
+
+/** The mailbox every test gets unless it sets `folders`: the three
+ *  well-known folders a new account's default selection resolves. */
+export const DEFAULT_FOLDERS: NonNullable<GraphWorld['folders']> = {
+  top: [],
+  wellKnown: {
+    inbox: { id: 'INBOX-ID', displayName: 'Inbox', childFolderCount: 0 },
+    sentitems: { id: 'SENT-ID', displayName: 'Sent Items', childFolderCount: 0 },
+    archive: { id: 'ARCHIVE-ID', displayName: 'Archive', childFolderCount: 0 },
+  },
+};
 
 /** One page of a (possibly paged) fixture list, with a `pageToken`
  *  nextLink while pages remain. */

@@ -40,6 +40,7 @@ import type { Ms365Cursor } from './cursor';
 import { runBackfill } from './backfill';
 import { runDelta } from './delta';
 import { toDocument, type Ms365ThreadItem } from './to-document';
+import { NEW_ACCOUNT_DEFAULTS, wellKnownRoots } from './scope';
 
 /**
  * Graph resource scopes only — legacy's SCOPES (`openid email profile
@@ -117,6 +118,7 @@ export function createMs365Source(
       auth: 'oauth',
       multiAccount: true,
       cadence: { every: '15m' },
+      folderScope: true,
     },
 
     async connect(auth: AuthChannel) {
@@ -143,8 +145,9 @@ export function createMs365Source(
 
       auth.status('Checking Microsoft 365 account type…');
       const tenantKind = await probeTenantKind(client);
+      const folderRoots = await wellKnownRoots(client, NEW_ACCOUNT_DEFAULTS);
 
-      return { identifier, config: { tenantKind } };
+      return { identifier, config: { tenantKind, folderRoots } };
     },
 
     async *pull(session: Session, cursor: Ms365Cursor | null) {

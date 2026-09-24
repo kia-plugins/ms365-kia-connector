@@ -7,7 +7,20 @@
  * which this port re-derives via live Graph calls instead of an id_token.
  */
 import { createMs365Source, SCOPES } from '../source';
-import { graphFetch, instantClock, makeAuth, makeHost } from '../testing/harness';
+import {
+  DEFAULT_FOLDERS,
+  graphFetch,
+  instantClock,
+  makeAuth,
+  makeHost,
+} from '../testing/harness';
+
+/** A new account tracks Inbox, Sent Items and Archive (spec §3.1). */
+const DEFAULT_ROOTS = [
+  { id: 'INBOX-ID', name: 'Inbox' },
+  { id: 'SENT-ID', name: 'Sent Items' },
+  { id: 'ARCHIVE-ID', name: 'Archive' },
+];
 
 describe('connect', () => {
   it('oauth happy path: Graph-only scopes, statuses, identifier = mail, tenantKind = work', async () => {
@@ -27,7 +40,10 @@ describe('connect', () => {
       'Fetching Microsoft 365 profile…',
       'Checking Microsoft 365 account type…',
     ]);
-    expect(res).toEqual({ identifier: 'ed@corp.com', config: { tenantKind: 'work' } });
+    expect(res).toEqual({
+      identifier: 'ed@corp.com',
+      config: { tenantKind: 'work', folderRoots: DEFAULT_ROOTS },
+    });
     expect(calls.some((u) => u.includes('/v1.0/me?'))).toBe(true);
     expect(calls.some((u) => u.includes('/v1.0/organization'))).toBe(true);
   });
@@ -41,7 +57,7 @@ describe('connect', () => {
     const { auth } = makeAuth();
     const res = await source.connect(auth);
     expect(res.identifier).toBe('alice@tenant.onmicrosoft.com');
-    expect(res.config).toEqual({ tenantKind: 'personal' });
+    expect(res.config).toEqual({ tenantKind: 'personal', folderRoots: DEFAULT_ROOTS });
   });
 
   it.each([400, 401, 403, 404, 405])(
@@ -54,7 +70,7 @@ describe('connect', () => {
       const source = createMs365Source(makeHost(fetchFn), instantClock);
       const { auth } = makeAuth();
       const res = await source.connect(auth);
-      expect(res.config).toEqual({ tenantKind: 'personal' });
+      expect(res.config).toEqual({ tenantKind: 'personal', folderRoots: DEFAULT_ROOTS });
     },
   );
 
@@ -79,7 +95,7 @@ describe('connect', () => {
     const source = createMs365Source(makeHost(fetchFn), instantClock);
     const { auth } = makeAuth();
     const res = await source.connect(auth);
-    expect(res.config).toEqual({ tenantKind: 'personal' });
+    expect(res.config).toEqual({ tenantKind: 'personal', folderRoots: DEFAULT_ROOTS });
   });
 
   it('propagates a 429 on /organization — a retry could still classify it', async () => {
@@ -100,7 +116,7 @@ describe('connect', () => {
     const source = createMs365Source(makeHost(fetchFn), instantClock);
     const { auth } = makeAuth();
     const res = await source.connect(auth);
-    expect(res.config).toEqual({ tenantKind: 'work' });
+    expect(res.config).toEqual({ tenantKind: 'work', folderRoots: DEFAULT_ROOTS });
   });
 
   it('propagates an unexpected /organization failure (e.g. 500) rather than guessing personal', async () => {
@@ -126,5 +142,20 @@ describe('connect', () => {
     const source = createMs365Source(makeHost(fetchFn), instantClock);
     const { auth } = makeAuth();
     await expect(source.connect(auth)).rejects.toThrow(/missing both mail and userPrincipalName/);
+  });
+});
+
+describe('connect — default folder selection', () => {
+  it('a mailbox without an Archive folder gets Inbox and Sent Items', async () => {
+    const { archive: _omit, ...wellKnown } = DEFAULT_FOLDERS.wellKnown!;
+    const { fetchFn } = graphFetch({ folders: { top: [], wellKnown } });
+    const source = createMs365Source(makeHost(fetchFn), instantClock);
+    const res = await source.connect(makeAuth().auth);
+    expect(res.config?.folderRoots).toEqual(DEFAULT_ROOTS.slice(0, 2));
+  });
+
+  it('declares folderScope', () => {
+    const source = createMs365Source(makeHost(graphFetch().fetchFn), instantClock);
+    expect(source.descriptor.folderScope).toBe(true);
   });
 });
