@@ -30,26 +30,49 @@ async function listPaged(client: GraphClient, first: string): Promise<MailFolder
   return out;
 }
 
+/** One folder by id or well-known name; `null` when it does not exist
+ *  (404). Any other error propagates. */
+export async function getFolder(client: GraphClient, idOrName: string): Promise<MailFolderNode | null> {
+  try {
+    return await client.request<MailFolderNode>(
+      `${GRAPH_BASE}/me/mailFolders/${encodeURIComponent(idOrName)}?$select=${FOLDER_SELECT}`,
+    );
+  } catch (e) {
+    if (statusOf(e) !== 404) throw e;
+    return null;
+  }
+}
+
 /** Well-known folders by name (`inbox`, `sentitems`, `archive`, …). A name
- *  the mailbox does not have (404 — e.g. no Archive folder) is omitted;
- *  any other error propagates. */
+ *  the mailbox does not have (e.g. no Archive folder) is omitted. */
 export async function resolveWellKnown(
   client: GraphClient,
   names: string[],
 ): Promise<Record<string, MailFolderNode>> {
   const out: Record<string, MailFolderNode> = {};
   for (const name of names) {
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      const node = await client.request<MailFolderNode>(
-        `${GRAPH_BASE}/me/mailFolders/${name}?$select=${FOLDER_SELECT}`,
-      );
-      out[name] = { ...node, wellKnown: name };
-    } catch (e) {
-      if (statusOf(e) !== 404) throw e;
-    }
+    // eslint-disable-next-line no-await-in-loop
+    const node = await getFolder(client, name);
+    if (node) out[name] = { ...node, wellKnown: name };
   }
   return out;
+}
+
+/** Ancestor ids of `ids` (excluding `ids` themselves and the mailbox root),
+ *  for the picker's `expand`: discovery only walks down, so this walks up
+ *  `parentFolderId`. A folder that no longer exists is skipped. */
+export async function ancestorsOf(client: GraphClient, ids: string[], topId?: string): Promise<string[]> {
+  const out = new Set<string>();
+  for (const id of ids) {
+    // eslint-disable-next-line no-await-in-loop
+    let parent = (await getFolder(client, id))?.parentFolderId;
+    for (let depth = 0; parent && parent !== topId && !out.has(parent) && depth < 32; depth += 1) {
+      out.add(parent);
+      // eslint-disable-next-line no-await-in-loop
+      parent = (await getFolder(client, parent))?.parentFolderId;
+    }
+  }
+  return [...out].filter((a) => !ids.includes(a));
 }
 
 /** Top-level folders, without the `searchfolders` root: search folders are

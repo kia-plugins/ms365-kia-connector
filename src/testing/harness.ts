@@ -203,6 +203,7 @@ export function makeSession(
   opts: {
     creds?: Credentials | null;
     config?: Record<string, unknown>;
+    cursor?: unknown;
     signal?: AbortSignal;
   } = {},
 ): { session: Session; logs: { level: string; msg: string }[] } {
@@ -214,7 +215,7 @@ export function makeSession(
       identifier: 'user@example.com',
       config: opts.config ?? {},
       status: 'live',
-      cursor: null,
+      cursor: opts.cursor ?? null,
       createdAt: '2026-01-01T00:00:00Z',
     } as Account,
     signal: opts.signal ?? new AbortController().signal,

@@ -30,6 +30,10 @@ import type {
   AuthChannel,
   Credentials,
   DocumentInput,
+  ExternalRef,
+  FolderNode,
+  FolderScopeUpdate,
+  FolderSelectionChannel,
   HostFor,
   Session,
   Source,
@@ -42,7 +46,14 @@ import {
   type LegacyMs365Cursor,
   type Ms365Cursor,
 } from './cursor';
-import { resolveWellKnown } from './folders';
+import {
+  ancestorsOf,
+  discoverTracked,
+  listChildFolders,
+  listTopFolders,
+  resolveWellKnown,
+  type MailFolderNode,
+} from './folders';
 import { sync } from './sync';
 import { EMAIL_THREAD_DOCUMENT_TYPE, toDocument, type Ms365ThreadItem } from './to-document';
 import { configuredRoots, NEW_ACCOUNT_DEFAULTS, resolveScope, wellKnownRoots } from './scope';
@@ -110,6 +121,32 @@ async function legacyFolderIds(client: GraphClient): Promise<{ inbox: string; se
     throw new Error('ms365: cannot resolve Inbox / Sent Items to migrate the sync cursor');
   }
   return { inbox: known.inbox.id, sentitems: known.sentitems.id };
+}
+
+const JUNK_SUFFIX = ' (may contain phishing)';
+const MANAGE_NOTE = 'Mail outside the selected folders will be removed from the index';
+
+/** The scope Save's archive set (spec §3.4): conversations with a message in
+ *  a folder that leaves the tracked set and none in the new tracked set.
+ *  Held in memory only for the leaving folders; the (larger) staying
+ *  listing streams against it. */
+async function leavingRefs(
+  client: GraphClient,
+  prior: ReadonlyMap<string, string>,
+  next: ReadonlyMap<string, string>,
+  warn: (m: string) => void,
+): Promise<ExternalRef[]> {
+  const leavingFolders = [...prior.keys()].filter((id) => !next.has(id));
+  if (leavingFolders.length === 0) return []; // pure widening: no listing
+  const leaving = new Set<string>();
+  for await (const ids of listConversationIds(client, leavingFolders, { warn })) {
+    for (const id of ids) leaving.add(id);
+  }
+  for await (const ids of listConversationIds(client, next.keys(), { warn })) {
+    for (const id of ids) leaving.delete(id);
+    if (leaving.size === 0) break;
+  }
+  return [...leaving].map((externalId) => ({ externalId, type: EMAIL_THREAD_DOCUMENT_TYPE }));
 }
 
 export function createMs365Source(
@@ -206,6 +243,75 @@ export function createMs365Source(
         'info',
         `ms365 reconcile: ${tracked.size} folders listed in ${requests} requests`,
       );
+    },
+
+    /** Spec §3.4: the Tracked folders picker over the Outlook folder tree.
+     *  Persists nothing — core applies the returned config, cursor and
+     *  `archiveRefs` in one transaction. */
+    async manageFolders(
+      session: Session,
+      channel: FolderSelectionChannel,
+    ): Promise<FolderScopeUpdate<Ms365Cursor>> {
+      const client = clientFor(session);
+      const config = session.account.config ?? {};
+      const warn = (m: string) => session.log('warn', m);
+      const prior = await resolveScope(client, config, warn);
+      const known = await resolveWellKnown(client, ['junkemail', 'msgfolderroot']);
+      const toNode = (f: MailFolderNode): FolderNode => ({
+        id: f.id,
+        name: f.id === known.junkemail?.id ? `${f.displayName}${JUNK_SUFFIX}` : f.displayName,
+        hasChildren: f.childFolderCount > 0,
+      });
+      const priorIds = prior.roots.map((r) => r.id);
+      const picked = await channel.pickFolders({
+        modes: [{ key: 'mail', label: 'Mail folders' }],
+        multiSelect: true,
+        purpose: 'manage',
+        note: MANAGE_NOTE,
+        selected: prior.roots.map((r) => ({
+          id: r.id,
+          name: r.name,
+          hasChildren: [...prior.tracked].some(([f, root]) => root === r.id && f !== r.id),
+        })),
+        expand: await ancestorsOf(client, priorIds, known.msgfolderroot?.id),
+        roots: async () => (await listTopFolders(client)).map(toNode),
+        children: async (id) => (await listChildFolders(client, id)).map(toNode),
+      });
+      if (picked.length === 0) throw new Error('ms365: no folders selected');
+
+      // Retained roots in prior order, then new ones in pick order.
+      const pickedIds = new Set(picked.map((n) => n.id));
+      const folderRoots = [
+        ...prior.roots.filter((r) => pickedIds.has(r.id)),
+        ...picked
+          .filter((n) => !priorIds.includes(n.id))
+          .map((n) => ({
+            id: n.id,
+            name: n.name.endsWith(JUNK_SUFFIX) ? n.name.slice(0, -JUNK_SUFFIX.length) : n.name,
+          })),
+      ];
+      const next = await discoverTracked(
+        client,
+        folderRoots.map((r) => r.id),
+        warn,
+      );
+      // A legacy account's first Save lists nothing: core grants the first
+      // declaration a reconcile allowance, and that pass archives exactly
+      // indexed − staying (spec §3.4).
+      const archiveRefs = prior.legacy ? [] : await leavingRefs(client, prior.tracked, next, warn);
+
+      const stored = session.account.cursor as Ms365Cursor | LegacyMs365Cursor | null;
+      const migrated = migrateCursor(
+        stored,
+        stored && !('v' in stored) ? await legacyFolderIds(client) : { inbox: '', sentitems: '' },
+      );
+      return {
+        config: { ...config, folderRoots },
+        cursor: migrated && rescope(migrated, next),
+        archiveScopeRootIds: [],
+        reattributeScopeRoots: [],
+        archiveRefs,
+      };
     },
 
     toDocument(item: Ms365ThreadItem): DocumentInput | null {
