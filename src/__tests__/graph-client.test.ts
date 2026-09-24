@@ -4,7 +4,7 @@
  * (see google-docs-kia-connector's client.test.ts for the pattern this
  * mirrors).
  */
-import { GraphApiError, GraphClient, Ms365AuthError } from '../graph-client';
+import { GraphApiError, GraphClient, isFolderGone, Ms365AuthError } from '../graph-client';
 import { instantClock } from '../testing/harness';
 
 function hostFetchSeq(
@@ -91,5 +91,20 @@ describe('GraphClient.request', () => {
       'ECONNRESET',
     );
     expect(calls).toBe(5);
+  });
+});
+
+describe('isFolderGone', () => {
+  const err = (status: number, code: string) =>
+    new GraphApiError(status, 'u', JSON.stringify({ error: { code, message: 'x' } }));
+  it('is true only for a 404 naming a missing folder or item', () => {
+    expect(isFolderGone(err(404, 'ErrorItemNotFound'))).toBe(true);
+    expect(isFolderGone(err(404, 'ErrorFolderNotFound'))).toBe(true);
+  });
+  it('a mailbox-level 404 is NOT a deleted folder', () => {
+    expect(isFolderGone(err(404, 'MailboxNotEnabledForRESTAPI'))).toBe(false);
+    expect(isFolderGone(err(404, 'ResourceNotFound'))).toBe(false);
+    expect(isFolderGone(err(500, 'ErrorItemNotFound'))).toBe(false);
+    expect(isFolderGone(new Error('graph 404 ErrorItemNotFound'))).toBe(false);
   });
 });

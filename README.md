@@ -21,23 +21,44 @@ one grant this connector needs before it activates:
    vault and are refreshed by the platform. This extension ships **no**
    Microsoft client credentials of its own.
 2. The account shows up under your Microsoft 365 mail address (or, if none
-   is published, your sign-in name) and backfills your Inbox and Sent Items,
-   then checks for changes every 15 minutes.
+   is published, your sign-in name) and backfills your Inbox, Sent Items and
+   Archive (see [Choosing folders](#choosing-folders)), then checks for
+   changes every 15 minutes.
 
 You can connect multiple Microsoft 365 accounts side by side — both personal
 (Outlook.com/Hotmail) and work-or-school tenants.
 
 ## What gets indexed
 
-- **Every conversation** in your **Inbox** and **Sent Items** — each becomes
+- **Every conversation** with a message in a **tracked folder** — each becomes
   one `email.thread` document (the same document type the built-in Gmail
   source uses, so Outlook mail and Gmail mail render identically in the
   app), with all of the conversation's messages stacked into one markdown
   body, newest activity last.
-- **Junk Email and Deleted Items are always excluded** from every sync —
-  matching the legacy connector's behavior exactly.
-- Messages upstream-deleted from your mailbox are archived out of the local
-  index on the next sync.
+- A conversation that no longer has a message in any tracked folder (moved
+  to Deleted Items, or to a folder you did not select, or deleted upstream)
+  is removed from the local index on a later sync.
+
+## Choosing folders
+
+Open the account's **Tracked folders** card and choose **Manage** to tick
+the Outlook folders you want indexed — Inbox, Sent Items, Archive, Drafts,
+Deleted Items, Junk Email, and any folder you created.
+
+- A new account starts with **Inbox, Sent Items and Archive** (Archive only
+  if your mailbox has one).
+- A selected folder includes **all its subfolders**, including ones you add
+  later.
+- **Junk Email** is marked "may contain phishing": indexed junk mail becomes
+  searchable, and an assistant may read it.
+- When you save, the picker notes "Mail outside the selected folders will
+  be removed from the index": conversations that only live in folders you
+  unticked leave the index. A conversation that also has a message in a
+  folder you kept (a thread in Inbox *and* Sent Items) stays.
+- **Accounts connected before this version** keep indexing Inbox and Sent
+  Items (now including their subfolders) and keep everything already
+  indexed until you first save a selection. The card shows "Default
+  folders — Manage to change" until then.
 
 ## What does NOT get indexed (and why)
 
@@ -69,8 +90,10 @@ You can connect multiple Microsoft 365 accounts side by side — both personal
 
 ## Limitations
 
-- Only the **Inbox** and **Sent Items** folders are synced — matching
-  Microsoft Graph's own constraint that `/me/messages/delta` only supports
-  change tracking scoped to a specific well-known folder for personal (MSA)
-  accounts.
+- Microsoft Graph's change tracking works per folder and not recursively,
+  so each tracked folder (subfolders included) is followed on its own; a
+  large tree means more requests per sync.
+- Mail moved *into* a tracked folder during a long offline gap (more than
+  about two weeks) may not be picked up until the conversation changes
+  again.
 - No attachment ingestion (see above).

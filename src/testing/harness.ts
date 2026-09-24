@@ -23,6 +23,7 @@ import type {
 import type { HostResponse } from '@kiagent/connector-sdk/http';
 import { jsonRes, scriptedFetch } from '@kiagent/connector-sdk/testing';
 import type { NetFetch } from '../graph-client';
+import type { MailFolderNode } from '../folders';
 import type { GraphMessage } from '../parser';
 
 /** Re-exported so this harness stays the single import site for the tests:
@@ -45,8 +46,6 @@ export interface GraphWorld {
   /** `/organization` probe response. Omit for the default ('personal':
    *  200 with an empty `value` array). */
   organization?: { status: number; body?: unknown } | { value: unknown[] };
-  junkFolderId?: string;
-  trashFolderId?: string;
   /** Exact-URL-keyed response table — covers folder delta pages, whose
    *  nextLink/deltaLink are literal strings the fixture itself defines
    *  (mirroring the legacy nock-based tests, which registered exact
@@ -60,6 +59,20 @@ export interface GraphWorld {
    *  an explicit `{ [id]: [] }` entry is how a test represents "deleted /
    *  zero-message conversation". */
   conversations?: Record<string, GraphMessage[] | GraphMessage[][]>;
+  /** The mail folder tree. `top` and each `children` list are single
+   *  pages unless given as explicit pages (array of arrays), paged with a
+   *  `pageToken` nextLink like `conversations`. A well-known name absent
+   *  from `wellKnown` answers 404. Omitted → `DEFAULT_FOLDERS`. */
+  folders?: {
+    top: MailFolderNode[] | MailFolderNode[][];
+    children?: Record<string, MailFolderNode[] | MailFolderNode[][]>;
+    wellKnown?: Record<string, MailFolderNode>;
+  };
+  /** folderId → the conversationIds of its messages, for the reconcile /
+   *  manageFolders listing `/me/mailFolders/{id}/messages?$select=
+   *  conversationId` (one page, or explicit pages). A folder absent here
+   *  throws (fails the test loudly). */
+  folderMessages?: Record<string, string[] | string[][]>;
   /** Checked first for every request; return undefined to fall through to
    *  the tables above. `count` is the per-exact-URL call number (0-based) —
    *  handy for "fails N times then succeeds" retry fixtures. */
@@ -96,11 +109,29 @@ export function graphFetch(world: GraphWorld = {}): {
       if ('status' in org) return jsonRes(org.status, org.body ?? {});
       return jsonRes(200, { value: org.value });
     }
-    if (p === '/v1.0/me/mailFolders/junkemail') {
-      return jsonRes(200, { id: world.junkFolderId ?? 'JUNK' });
+    const folders = world.folders ?? DEFAULT_FOLDERS;
+    if (p === '/v1.0/me/mailFolders') {
+      return jsonRes(200, pageOf(url, folders.top));
     }
-    if (p === '/v1.0/me/mailFolders/deleteditems') {
-      return jsonRes(200, { id: world.trashFolderId ?? 'TRASH' });
+    const kids = /^\/v1\.0\/me\/mailFolders\/([^/]+)\/childFolders$/.exec(p);
+    if (kids) {
+      const list = folders.children?.[decodeURIComponent(kids[1])];
+      if (list === undefined) throw new Error(`fake graph: no children fixture for ${kids[1]}`);
+      return jsonRes(200, pageOf(url, list));
+    }
+    const listed = /^\/v1\.0\/me\/mailFolders\/([^/]+)\/messages$/.exec(p);
+    if (listed) {
+      const ids = world.folderMessages?.[decodeURIComponent(listed[1])];
+      if (ids === undefined) throw new Error(`fake graph: no folderMessages fixture for ${listed[1]}`);
+      const page = pageOf(url, ids);
+      return jsonRes(200, { ...page, value: page.value.map((conversationId) => ({ conversationId })) });
+    }
+    const named = /^\/v1\.0\/me\/mailFolders\/([^/]+)$/.exec(p);
+    if (named) {
+      const hit = folders.wellKnown?.[decodeURIComponent(named[1])];
+      return hit
+        ? jsonRes(200, hit)
+        : jsonRes(404, { error: { code: 'ErrorFolderNotFound' } });
     }
     if (p === '/v1.0/me/messages') {
       const filter = url.searchParams.get('$filter') ?? '';
@@ -133,6 +164,33 @@ export function graphFetch(world: GraphWorld = {}): {
   return { fetchFn, calls };
 }
 
+/** The mailbox every test gets unless it sets `folders`: the three
+ *  well-known folders a new account's default selection resolves. */
+export const DEFAULT_FOLDERS: NonNullable<GraphWorld['folders']> = {
+  top: [],
+  children: { 'INBOX-ID': [], 'SENT-ID': [], 'ARCHIVE-ID': [] },
+  wellKnown: {
+    inbox: { id: 'INBOX-ID', displayName: 'Inbox', childFolderCount: 0 },
+    sentitems: { id: 'SENT-ID', displayName: 'Sent Items', childFolderCount: 0 },
+    archive: { id: 'ARCHIVE-ID', displayName: 'Archive', childFolderCount: 0 },
+  },
+};
+
+/** One page of a (possibly paged) fixture list, with a `pageToken`
+ *  nextLink while pages remain. */
+function pageOf<T>(url: URL, raw: T[] | T[][]): { value: T[]; '@odata.nextLink'?: string } {
+  const pages: T[][] = raw.length && Array.isArray(raw[0]) ? (raw as T[][]) : [raw as T[]];
+  const tok = url.searchParams.get('pageToken');
+  const idx = tok ? Number(tok) : 0;
+  const body: { value: T[]; '@odata.nextLink'?: string } = { value: pages[idx] ?? [] };
+  if (idx + 1 < pages.length) {
+    const next = new URL(url.toString());
+    next.searchParams.set('pageToken', String(idx + 1));
+    body['@odata.nextLink'] = next.toString();
+  }
+  return body;
+}
+
 export function makeHost(fetchFn: NetFetch): HostFor<'net'> {
   return {
     self: { id: 'kia.ms365', dataDir: '/tmp' },
@@ -145,6 +203,7 @@ export function makeSession(
   opts: {
     creds?: Credentials | null;
     config?: Record<string, unknown>;
+    cursor?: unknown;
     signal?: AbortSignal;
   } = {},
 ): { session: Session; logs: { level: string; msg: string }[] } {
@@ -156,7 +215,7 @@ export function makeSession(
       identifier: 'user@example.com',
       config: opts.config ?? {},
       status: 'live',
-      cursor: null,
+      cursor: opts.cursor ?? null,
       createdAt: '2026-01-01T00:00:00Z',
     } as Account,
     signal: opts.signal ?? new AbortController().signal,

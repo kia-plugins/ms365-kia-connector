@@ -11,6 +11,7 @@ describe('toDocument', () => {
     const doc = toDocument({
       conversationId: 'C1',
       tenantKind: 'personal',
+      scopeRootId: null,
       messages: [graphMsg()],
     })!;
 
@@ -30,7 +31,7 @@ describe('toDocument', () => {
   });
 
   it('returns null for a zero-message item', () => {
-    expect(toDocument({ conversationId: 'C1', tenantKind: 'personal', messages: [] })).toBeNull();
+    expect(toDocument({ conversationId: 'C1', tenantKind: 'personal', scopeRootId: null, messages: [] })).toBeNull();
   });
 
   it.each([
@@ -40,6 +41,7 @@ describe('toDocument', () => {
     const doc = toDocument({
       conversationId: 'C1',
       tenantKind: 'personal',
+      scopeRootId: null,
       messages: [graphMsg({ subject })],
     })!;
     expect(doc.title).toBe('(no subject)');
@@ -50,6 +52,7 @@ describe('toDocument', () => {
     const doc = toDocument({
       conversationId: 'C1',
       tenantKind: 'personal',
+      scopeRootId: null,
       messages: [
         graphMsg({ id: 'm1', receivedDateTime: '2026-05-20T10:00:00Z', body: { contentType: 'text', content: 'first' } }),
         graphMsg({ id: 'm2', receivedDateTime: '2026-05-21T10:00:00Z', body: { contentType: 'text', content: 'second' } }),
@@ -64,6 +67,7 @@ describe('toDocument', () => {
     const doc = toDocument({
       conversationId: 'C1',
       tenantKind: 'personal',
+      scopeRootId: null,
       messages: [
         graphMsg({
           from: { emailAddress: { address: 'a@x.com' } },
@@ -83,6 +87,7 @@ describe('toDocument', () => {
     const doc = toDocument({
       conversationId: 'C1',
       tenantKind: 'personal',
+      scopeRootId: null,
       messages: [
         graphMsg({
           internetMessageHeaders: [{ name: 'List-Unsubscribe', value: '<https://x/unsub>' }],
@@ -108,5 +113,20 @@ describe('buildThreadUrl', () => {
     const url = buildThreadUrl('work', 'C1');
     const id = url.split('/').pop()!;
     expect(Buffer.from(id, 'base64url').toString('utf-8')).toBe('C1');
+  });
+
+  it('metadata.folders is the sorted member folder set, so a move changes the hash; scopeRootId is stamped', () => {
+    const base = { conversationId: 'C1', tenantKind: 'personal' as const, scopeRootId: 'INBOX-ID' };
+    const before = toDocument({
+      ...base,
+      messages: [graphMsg({ id: 'm1', parentFolderId: 'INBOX-ID' }), graphMsg({ id: 'm2', parentFolderId: 'SENT-ID' })],
+    })!;
+    const after = toDocument({
+      ...base,
+      messages: [graphMsg({ id: 'm1', parentFolderId: 'ARCHIVE-ID' }), graphMsg({ id: 'm2', parentFolderId: 'SENT-ID' })],
+    })!;
+    expect(before.metadata.folders).toEqual(['INBOX-ID', 'SENT-ID']);
+    expect(after.metadata.folders).toEqual(['ARCHIVE-ID', 'SENT-ID']);
+    expect(before.scopeRootId).toBe('INBOX-ID');
   });
 });

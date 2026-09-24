@@ -14,8 +14,8 @@ import { collect, graphFetch, graphMsg, instantClock, makeHost, makeSession } fr
 
 type B = Batch<Ms365Cursor, Ms365ThreadItem>;
 
-const INBOX_START = initialDeltaUrl('inbox');
-const SENT_START = initialDeltaUrl('sentitems');
+const INBOX_START = initialDeltaUrl('INBOX-ID');
+const SENT_START = initialDeltaUrl('SENT-ID');
 
 function makeSource(world: Parameters<typeof graphFetch>[0]) {
   const { fetchFn, calls } = graphFetch(world);
@@ -24,10 +24,8 @@ function makeSource(world: Parameters<typeof graphFetch>[0]) {
 }
 
 describe('backfill: enumerate + ingest', () => {
-  it('pages each folder, skips drafts + excluded folders, ingests, ends live', async () => {
+  it('pages each folder, keeps drafts and every folder (legacy retention), ingests, ends live', async () => {
     const { source, calls } = makeSource({
-      junkFolderId: 'JUNK',
-      trashFolderId: 'TRASH',
       urls: {
         [INBOX_START]: {
           value: [
@@ -49,7 +47,9 @@ describe('backfill: enumerate + ingest', () => {
       },
       conversations: {
         C1: [graphMsg({ id: 'm1', conversationId: 'C1', subject: 'hello C1' })],
+        C3: [graphMsg({ id: 'm3', conversationId: 'C3', subject: 'draft C3' })],
         C4: [graphMsg({ id: 'm5', conversationId: 'C4', subject: 'hello C4' })],
+        C5: [graphMsg({ id: 'm4', conversationId: 'C5', parentFolderId: 'JUNK' })],
         C9: [graphMsg({ id: 's1', conversationId: 'C9', subject: 'hello C9' })],
       },
     });
@@ -61,21 +61,26 @@ describe('backfill: enumerate + ingest', () => {
       phase: 'live',
       items: [],
       cursor: {
+        v: 2,
         phase: 'live',
         folders: {
-          inbox: { delta: 'https://graph.microsoft.com/v1.0/inbox-final' },
-          sentitems: { delta: 'https://graph.microsoft.com/v1.0/sent-final' },
+          'INBOX-ID': { delta: 'https://graph.microsoft.com/v1.0/inbox-final' },
+          'SENT-ID': { delta: 'https://graph.microsoft.com/v1.0/sent-final' },
         },
+        pending: [],
+        retry: [],
       },
     });
 
+    // Per-folder delta only ever lists that folder's own messages, so the
+    // old junk/deleted exclusion never fired on the Inbox/Sent feeds; a
+    // JUNK-parented entry here is fixture-only. Drafts now count.
     const allConversationIds = batches.flatMap((b) => b.items.map((i) => i.conversationId));
-    expect(allConversationIds.sort()).toEqual(['C1', 'C4', 'C9']);
+    expect(allConversationIds.sort()).toEqual(['C1', 'C3', 'C4', 'C5', 'C9']);
 
     const ingestBatch = batches.find((b) => b.items.length > 0)!;
-    expect(ingestBatch.estimateTotal).toBe(3);
-    expect(calls.some((u) => u.includes('junkemail'))).toBe(true);
-    expect(calls.some((u) => u.includes('deleteditems'))).toBe(true);
+    expect(ingestBatch.estimateTotal).toBe(5);
+    expect(calls.some((u) => u.includes('junkemail'))).toBe(false);
   });
 
   it('checkpoints a resume cursor after every delta page, and a crash mid-folder resumes from the last page fetched without re-fetching it', async () => {
@@ -86,8 +91,6 @@ describe('backfill: enumerate + ingest', () => {
     //     deltaLink is ever reached, and (2) resuming a crashed run from that
     //     cursor fetches ONLY the remaining pages — page 1 is never re-fetched.
     const world = {
-      junkFolderId: 'JUNK',
-      trashFolderId: 'TRASH',
       urls: {
         [INBOX_START]: {
           value: [{ id: 'm1', conversationId: 'C1', parentFolderId: 'inbox', isDraft: false }],
@@ -125,16 +128,17 @@ describe('backfill: enumerate + ingest', () => {
     expect(firstBatch.phase).toBe('backfill');
     expect(firstBatch.items).toEqual([]);
     expect(firstBatch.cursor).toEqual({
+      v: 2,
       phase: 'enumerate',
       folders: {
-        inbox: { next: 'https://graph.microsoft.com/v1.0/inbox-p2' },
-        sentitems: { next: SENT_START },
+        'INBOX-ID': { next: 'https://graph.microsoft.com/v1.0/inbox-p2' },
+        'SENT-ID': { next: SENT_START },
       },
       pending: ['C1'],
+      retry: [],
     });
-    expect(firstCalls).toEqual([
-      'https://graph.microsoft.com/v1.0/me/mailFolders/junkemail',
-      'https://graph.microsoft.com/v1.0/me/mailFolders/deleteditems',
+    // Discovery ran first; of the delta pages, only page 1 was fetched.
+    expect(firstCalls.filter((u) => u.includes('/messages/delta') || u.includes('inbox-p'))).toEqual([
       INBOX_START,
     ]);
     // Abandon the generator here — this is the simulated crash. Page 2 and 3
@@ -161,8 +165,6 @@ describe('backfill: enumerate + ingest', () => {
 
   it('resumes from a saved enumerate cursor', async () => {
     const { source } = makeSource({
-      junkFolderId: 'JUNK',
-      trashFolderId: 'TRASH',
       urls: {
         'https://graph.microsoft.com/v1.0/sent-resume': {
           value: [{ id: 's9', conversationId: 'C9', parentFolderId: 'sentitems', isDraft: false }],
@@ -173,12 +175,14 @@ describe('backfill: enumerate + ingest', () => {
     });
     const { session } = makeSession();
     const resumeCursor: Ms365Cursor = {
+      v: 2,
       phase: 'enumerate',
       folders: {
-        inbox: { delta: 'https://graph.microsoft.com/v1.0/inbox-final' },
-        sentitems: { next: 'https://graph.microsoft.com/v1.0/sent-resume' },
+        'INBOX-ID': { delta: 'https://graph.microsoft.com/v1.0/inbox-final' },
+        'SENT-ID': { next: 'https://graph.microsoft.com/v1.0/sent-resume' },
       },
       pending: ['C0'],
+      retry: [],
     };
 
     const batches = (await collect(source.pull(session, resumeCursor))) as B[];
@@ -192,32 +196,35 @@ describe('backfill: enumerate + ingest', () => {
     });
     const { session } = makeSession();
     const resumeCursor: Ms365Cursor = {
+      v: 2,
       phase: 'ingest',
       folders: {
-        inbox: { delta: 'https://graph.microsoft.com/v1.0/inbox-final' },
-        sentitems: { delta: 'https://graph.microsoft.com/v1.0/sent-final' },
+        'INBOX-ID': { delta: 'https://graph.microsoft.com/v1.0/inbox-final' },
+        'SENT-ID': { delta: 'https://graph.microsoft.com/v1.0/sent-final' },
       },
       pending: ['C1'],
       total: 5,
+      retry: [],
     };
 
     const batches = (await collect(source.pull(session, resumeCursor))) as B[];
     expect(batches.some((b) => b.items.some((i) => i.conversationId === 'C1'))).toBe(true);
-    expect(calls.some((u) => u.includes('junkemail'))).toBe(false); // no re-enumeration
+    expect(calls.some((u) => u.includes('/messages/delta'))).toBe(false); // no re-enumeration
     const last = batches[batches.length - 1];
     expect(last.cursor).toEqual({
+      v: 2,
       phase: 'live',
       folders: {
-        inbox: { delta: 'https://graph.microsoft.com/v1.0/inbox-final' },
-        sentitems: { delta: 'https://graph.microsoft.com/v1.0/sent-final' },
+        'INBOX-ID': { delta: 'https://graph.microsoft.com/v1.0/inbox-final' },
+        'SENT-ID': { delta: 'https://graph.microsoft.com/v1.0/sent-final' },
       },
+      pending: [],
+      retry: [],
     });
   });
 
-  it('continues past a per-conversation failure', async () => {
+  it('continues past a per-conversation failure, keeping it in retry', async () => {
     const { source } = makeSource({
-      junkFolderId: 'JUNK',
-      trashFolderId: 'TRASH',
       urls: {
         [INBOX_START]: { value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/inbox-final' },
         [SENT_START]: { value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/sent-final' },
@@ -235,18 +242,19 @@ describe('backfill: enumerate + ingest', () => {
     });
     const { session } = makeSession();
     const resumeCursor: Ms365Cursor = {
+      v: 2,
       phase: 'ingest',
-      folders: {
-        inbox: { delta: 'x' },
-        sentitems: { delta: 'y' },
-      },
+      folders: { 'INBOX-ID': { delta: 'x' }, 'SENT-ID': { delta: 'y' } },
       pending: ['BAD', 'GOOD'],
       total: 2,
+      retry: [],
     };
 
     const batches = (await collect(source.pull(session, resumeCursor))) as B[];
     const ids = batches.flatMap((b) => b.items.map((i) => i.conversationId));
     expect(ids).toEqual(['GOOD']);
+    // The failure is kept for the next pull, not logged and lost.
+    expect(batches[batches.length - 1].cursor.retry).toEqual([{ id: 'BAD', n: 1 }]);
   }, 30_000);
 
   it('rethrows an auth error instead of churning through the remaining conversations', async () => {
@@ -268,10 +276,12 @@ describe('backfill: enumerate + ingest', () => {
     });
     const { session } = makeSession();
     const resumeCursor: Ms365Cursor = {
+      v: 2,
       phase: 'ingest',
-      folders: { inbox: { delta: 'x' }, sentitems: { delta: 'y' } },
+      folders: { 'INBOX-ID': { delta: 'x' }, 'SENT-ID': { delta: 'y' } },
       pending: ['DEAD1', 'DEAD2', 'NEVER'],
       total: 3,
+      retry: [],
     };
 
     await expect(collect(source.pull(session, resumeCursor))).rejects.toThrow(/401/);
