@@ -2,8 +2,8 @@
  * Microsoft 365 (Outlook mail) v2 source: platform-owned OAuth connect (the
  * `microsoft` OAuth provider — see manifest.json's `contributes.sources`
  * binding), a tenant-kind probe in place of legacy's id_token `tid`-claim
- * decode (v2 has no id_token to read), per-folder delta backfill + delta
- * sweep, and a pure `toDocument`.
+ * decode (v2 has no id_token to read), a pull over the selected folder tree
+ * (sync.ts), and a pure `toDocument`.
  *
  * Ported from the v1 connector (`src/main/connectors/ms365/*.ts` +
  * `ms-shared/graph-fetch.ts` + `ms-shared/walk-delta.ts`): `client.ts`'s
@@ -36,11 +36,16 @@ import type {
 } from '@kiagent/connector-sdk';
 import { GraphClient, statusOf, type GraphClientDeps } from './graph-client';
 import { GRAPH_BASE } from './graph-api';
-import type { LegacyMs365Cursor as Ms365Cursor } from './cursor';
-import { runBackfill } from './backfill';
-import { runDelta } from './delta';
+import {
+  migrateCursor,
+  rescope,
+  type LegacyMs365Cursor,
+  type Ms365Cursor,
+} from './cursor';
+import { resolveWellKnown } from './folders';
+import { sync } from './sync';
 import { toDocument, type Ms365ThreadItem } from './to-document';
-import { NEW_ACCOUNT_DEFAULTS, wellKnownRoots } from './scope';
+import { NEW_ACCOUNT_DEFAULTS, resolveScope, wellKnownRoots } from './scope';
 
 /**
  * Graph resource scopes only — legacy's SCOPES (`openid email profile
@@ -95,6 +100,15 @@ async function requireToken(session: Session): Promise<string> {
     throw new Error('ms365: no credentials available — reconnect the account');
   }
   return creds.accessToken;
+}
+
+/** The ids a v1 cursor's `inbox`/`sentitems` keys stood for. */
+async function legacyFolderIds(client: GraphClient): Promise<{ inbox: string; sentitems: string }> {
+  const known = await resolveWellKnown(client, ['inbox', 'sentitems']);
+  if (!known.inbox || !known.sentitems) {
+    throw new Error('ms365: cannot resolve Inbox / Sent Items to migrate the sync cursor');
+  }
+  return { inbox: known.inbox.id, sentitems: known.sentitems.id };
 }
 
 export function createMs365Source(
@@ -152,12 +166,19 @@ export function createMs365Source(
 
     async *pull(session: Session, cursor: Ms365Cursor | null) {
       const client = clientFor(session);
-      const tenantKind = tenantKindOf(session);
-      if (cursor?.phase === 'live') {
-        yield* runDelta(client, session, tenantKind, cursor);
-      } else {
-        yield* runBackfill(client, session, tenantKind, cursor);
-      }
+      const scope = await resolveScope(client, session.account.config ?? {}, (m) =>
+        session.log('warn', m),
+      );
+      const stored = cursor as Ms365Cursor | LegacyMs365Cursor | null;
+      const migrated = migrateCursor(
+        stored,
+        stored && !('v' in stored) ? await legacyFolderIds(client) : { inbox: '', sentitems: '' },
+      );
+      const start = rescope(
+        migrated ?? { v: 2, phase: 'enumerate', folders: {}, pending: [], retry: [] },
+        scope.tracked,
+      );
+      yield* sync(client, session, tenantKindOf(session), scope, start);
     },
 
     toDocument(item: Ms365ThreadItem): DocumentInput | null {

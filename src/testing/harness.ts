@@ -46,8 +46,6 @@ export interface GraphWorld {
   /** `/organization` probe response. Omit for the default ('personal':
    *  200 with an empty `value` array). */
   organization?: { status: number; body?: unknown } | { value: unknown[] };
-  junkFolderId?: string;
-  trashFolderId?: string;
   /** Exact-URL-keyed response table — covers folder delta pages, whose
    *  nextLink/deltaLink are literal strings the fixture itself defines
    *  (mirroring the legacy nock-based tests, which registered exact
@@ -64,8 +62,7 @@ export interface GraphWorld {
   /** The mail folder tree. `top` and each `children` list are single
    *  pages unless given as explicit pages (array of arrays), paged with a
    *  `pageToken` nextLink like `conversations`. A well-known name absent
-   *  from `wellKnown` answers 404 (junkemail/deleteditems keep their own
-   *  fields above). Omitted → `DEFAULT_FOLDERS`. */
+   *  from `wellKnown` answers 404. Omitted → `DEFAULT_FOLDERS`. */
   folders?: {
     top: MailFolderNode[] | MailFolderNode[][];
     children?: Record<string, MailFolderNode[] | MailFolderNode[][]>;
@@ -106,12 +103,6 @@ export function graphFetch(world: GraphWorld = {}): {
       if (!org) return jsonRes(200, { value: [] });
       if ('status' in org) return jsonRes(org.status, org.body ?? {});
       return jsonRes(200, { value: org.value });
-    }
-    if (p === '/v1.0/me/mailFolders/junkemail') {
-      return jsonRes(200, { id: world.junkFolderId ?? 'JUNK' });
-    }
-    if (p === '/v1.0/me/mailFolders/deleteditems') {
-      return jsonRes(200, { id: world.trashFolderId ?? 'TRASH' });
     }
     const folders = world.folders ?? DEFAULT_FOLDERS;
     if (p === '/v1.0/me/mailFolders') {
@@ -165,6 +156,7 @@ export function graphFetch(world: GraphWorld = {}): {
  *  well-known folders a new account's default selection resolves. */
 export const DEFAULT_FOLDERS: NonNullable<GraphWorld['folders']> = {
   top: [],
+  children: { 'INBOX-ID': [], 'SENT-ID': [], 'ARCHIVE-ID': [] },
   wellKnown: {
     inbox: { id: 'INBOX-ID', displayName: 'Inbox', childFolderCount: 0 },
     sentitems: { id: 'SENT-ID', displayName: 'Sent Items', childFolderCount: 0 },

@@ -8,7 +8,6 @@ import { GraphClient } from '../graph-client';
 import {
   accumulate,
   fetchConversationMessages,
-  resolveExcludedFolderIds,
   walkGraphDelta,
   type GraphDeltaPage,
   type Ms365DeltaMessage,
@@ -18,14 +17,6 @@ import { graphFetch, instantClock } from '../testing/harness';
 function client(fetchFn: ReturnType<typeof graphFetch>['fetchFn']) {
   return new GraphClient({ fetch: fetchFn, getToken: async () => 'tok', ...instantClock });
 }
-
-describe('resolveExcludedFolderIds', () => {
-  it('fetches junkemail + deleteditems IDs', async () => {
-    const { fetchFn } = graphFetch({ junkFolderId: 'JUNK-ID', trashFolderId: 'TRASH-ID' });
-    const ids = await resolveExcludedFolderIds(client(fetchFn));
-    expect(ids).toEqual(new Set(['JUNK-ID', 'TRASH-ID']));
-  });
-});
 
 describe('fetchConversationMessages', () => {
   it('pages messages for a single conversationId and sorts client-side, oldest first', async () => {
@@ -86,13 +77,13 @@ describe('walkGraphDelta + accumulate', () => {
     const deltaLink = await walkGraphDelta<Ms365DeltaMessage>(
       c,
       'https://graph.microsoft.com/v1.0/start',
-      (page) => accumulate(page, new Set(), ids),
+      (page) => accumulate(page, ids),
     );
     expect(deltaLink).toBe('https://graph.microsoft.com/v1.0/final');
     expect([...ids].sort()).toEqual(['C1', 'C2']);
   });
 
-  it('accumulate skips drafts and excluded (junk/deleted) folder ids', () => {
+  it('accumulate keeps every folder and drafts; only entries without a conversationId (e.g. @removed) are skipped', () => {
     const ids = new Set<string>();
     accumulate(
       {
@@ -103,10 +94,9 @@ describe('walkGraphDelta + accumulate', () => {
           { id: 'm4', conversationId: undefined, parentFolderId: 'inbox', isDraft: false },
         ],
       },
-      new Set(['JUNK']),
       ids,
     );
-    expect([...ids]).toEqual(['C1']);
+    expect([...ids]).toEqual(['C1', 'C2', 'C3']);
   });
 
   it('returns undefined when the signal is already aborted', async () => {

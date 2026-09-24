@@ -25,6 +25,10 @@ export interface Ms365ThreadItem {
    *  oldest first. */
   messages: GraphMessage[];
   tenantKind: 'work' | 'personal';
+  /** The first selected root (config order) covering a member folder;
+   *  `null` for a legacy account. Informational — ms365 never archives by
+   *  stamp (spec §3.2). */
+  scopeRootId: string | null;
 }
 
 /**
@@ -49,8 +53,8 @@ export function buildThreadUrl(
 
 /** PURE conversation → DocumentInput mapping. Returns null for a
  *  conversation with zero messages (mirrors legacy's "empty conversation"
- *  skip — pull() never actually emits such an item; see backfill.ts /
- *  delta.ts, which route a zero-message conversation to a deletion instead).
+ *  skip — pull() never actually emits such an item; see sync.ts, which
+ *  routes a zero-message conversation to a deletion instead).
  *
  *  DROPPED vs legacy: legacy's `isAutomatedThread` filter (Auto-Submitted /
  *  Precedence / List-* headers / system-sender local-parts / empty
@@ -86,6 +90,11 @@ export function toDocument(item: Ms365ThreadItem): DocumentInput | null {
     idx += 1;
   }
 
+  // Folder membership is content (spec §3.2): a move between folders changes
+  // the hash, so the row re-emits (and revives if reconcile archived it).
+  const folders = [
+    ...new Set(item.messages.map((m) => m.parentFolderId).filter((f): f is string => !!f)),
+  ].sort();
   const participants = [
     ...new Set(parsed.flatMap((m) => [m.from, ...m.to, ...m.cc])),
   ];
@@ -106,6 +115,7 @@ export function toDocument(item: Ms365ThreadItem): DocumentInput | null {
       firstMessageAt: first.date.toISOString(),
       lastMessageAt: last.date.toISOString(),
       tenantKind: item.tenantKind,
+      folders,
       messages: parsed.map((m) => ({
         id: m.messageId,
         from: m.from,
@@ -117,6 +127,7 @@ export function toDocument(item: Ms365ThreadItem): DocumentInput | null {
     // deviation from legacy (which stamped created_at from the FIRST
     // message) — see that port's report for rationale (recency ordering).
     createdAt: last.date.toISOString(),
+    ...(item.scopeRootId ? { scopeRootId: item.scopeRootId } : {}),
   };
 }
 

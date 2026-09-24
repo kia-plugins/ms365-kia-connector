@@ -1,4 +1,7 @@
-import { initialDeltaUrl, type FolderState, type MailFolder } from './graph-api';
+import { initialDeltaUrl, type FolderState } from './graph-api';
+
+/** The two well-known folders a v1 cursor was keyed by. */
+export type MailFolder = 'inbox' | 'sentitems';
 
 /**
  * ms365's persisted Cursor (spec §3.2), keyed by Graph folder id over the

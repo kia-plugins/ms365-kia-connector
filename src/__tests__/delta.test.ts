@@ -8,7 +8,7 @@
 import { createMs365Source } from '../source';
 import { EMAIL_THREAD_DOCUMENT_TYPE } from '../to-document';
 import type { Batch } from '@kiagent/connector-sdk';
-import type { LegacyMs365Cursor as Ms365Cursor } from '../cursor';
+import type { Ms365Cursor } from '../cursor';
 import type { Ms365ThreadItem } from '../to-document';
 import { collect, graphFetch, graphMsg, instantClock, makeHost, makeSession } from '../testing/harness';
 
@@ -20,19 +20,17 @@ function makeSource(world: Parameters<typeof graphFetch>[0]) {
   return { source, calls };
 }
 
-const liveCursor = (
-  inboxDelta: string,
-  sentDelta: string,
-): Extract<Ms365Cursor, { phase: 'live' }> => ({
+const liveCursor = (inboxDelta: string, sentDelta: string): Ms365Cursor => ({
+  v: 2,
   phase: 'live',
-  folders: { inbox: { delta: inboxDelta }, sentitems: { delta: sentDelta } },
+  folders: { 'INBOX-ID': { delta: inboxDelta }, 'SENT-ID': { delta: sentDelta } },
+  pending: [],
+  retry: [],
 });
 
 describe('delta', () => {
   it('polls each folder, ingests affected conversations, advances deltaLinks', async () => {
     const { source } = makeSource({
-      junkFolderId: 'JUNK',
-      trashFolderId: 'TRASH',
       urls: {
         'https://graph.microsoft.com/v1.0/inbox-start': {
           value: [{ id: 'm-changed', conversationId: 'CA', parentFolderId: 'inbox', isDraft: false }],
@@ -57,13 +55,9 @@ describe('delta', () => {
     expect(batches).toHaveLength(1);
     expect(batches[0].phase).toBe('live');
     expect(batches[0].items.map((i) => i.conversationId)).toEqual(['CA']);
-    expect(batches[0].cursor).toEqual({
-      phase: 'live',
-      folders: {
-        inbox: { delta: 'https://graph.microsoft.com/v1.0/inbox-next' },
-        sentitems: { delta: 'https://graph.microsoft.com/v1.0/sent-next' },
-      },
-    });
+    expect(batches[0].cursor).toEqual(
+      liveCursor('https://graph.microsoft.com/v1.0/inbox-next', 'https://graph.microsoft.com/v1.0/sent-next'),
+    );
   });
 
   it('follows @odata.nextLink across pages before capturing the deltaLink', async () => {
@@ -96,7 +90,7 @@ describe('delta', () => {
     )) as B[];
     expect(batches[0].items.map((i) => i.conversationId).sort()).toEqual(['C1', 'C2']);
     expect(batches[0].cursor).toMatchObject({
-      folders: { inbox: { delta: 'https://graph.microsoft.com/v1.0/inbox-next' } },
+      folders: { 'INBOX-ID': { delta: 'https://graph.microsoft.com/v1.0/inbox-next' } },
     });
   });
 
@@ -104,7 +98,7 @@ describe('delta', () => {
     const { source } = makeSource({
       custom: (url) => {
         if (
-          url.pathname === '/v1.0/me/mailFolders/inbox/messages/delta' &&
+          url.pathname === '/v1.0/me/mailFolders/INBOX-ID/messages/delta' &&
           url.searchParams.get('$deltatoken') === 'EXPIRED'
         ) {
           return {
@@ -117,7 +111,7 @@ describe('delta', () => {
           };
         }
         if (
-          url.pathname === '/v1.0/me/mailFolders/inbox/messages/delta' &&
+          url.pathname === '/v1.0/me/mailFolders/INBOX-ID/messages/delta' &&
           (url.searchParams.get('$filter') ?? '').startsWith('receivedDateTime ge')
         ) {
           return {
@@ -146,18 +140,14 @@ describe('delta', () => {
 
     const batches = (await collect(
       source.pull(session, liveCursor(
-        'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=EXPIRED',
+        'https://graph.microsoft.com/v1.0/me/mailFolders/INBOX-ID/messages/delta?$deltatoken=EXPIRED',
         'https://graph.microsoft.com/v1.0/sent-ok',
       )),
     )) as B[];
 
-    expect(batches[0].cursor).toEqual({
-      phase: 'live',
-      folders: {
-        inbox: { delta: 'https://graph.microsoft.com/v1.0/inbox-fresh' },
-        sentitems: { delta: 'https://graph.microsoft.com/v1.0/sent-ok-next' },
-      },
-    });
+    expect(batches[0].cursor).toEqual(
+      liveCursor('https://graph.microsoft.com/v1.0/inbox-fresh', 'https://graph.microsoft.com/v1.0/sent-ok-next'),
+    );
     expect(batches[0].items.map((i) => i.conversationId)).toEqual(['CR']);
   });
 
@@ -188,29 +178,33 @@ describe('delta', () => {
     ]);
   });
 
-  it('skips a folder with no delta cursor rather than throwing', async () => {
+  it('a live folder still in `next` state is enumerated inside the live pull (it used to be skipped)', async () => {
     const { source } = makeSource({
       urls: {
+        'https://graph.microsoft.com/v1.0/inbox-mid-enumeration': {
+          value: [{ id: 'mN', conversationId: 'CN', parentFolderId: 'INBOX-ID', isDraft: false }],
+          '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/inbox-next',
+        },
         'https://graph.microsoft.com/v1.0/sent-start': {
           value: [],
           '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/sent-next',
         },
       },
+      conversations: { CN: [graphMsg({ conversationId: 'CN' })] },
     });
     const { session } = makeSession();
-    const cursor: Extract<Ms365Cursor, { phase: 'live' }> = {
-      phase: 'live',
+    const cursor: Ms365Cursor = {
+      ...liveCursor('unused', 'https://graph.microsoft.com/v1.0/sent-start'),
       folders: {
-        inbox: { next: 'https://graph.microsoft.com/v1.0/inbox-mid-enumeration' },
-        sentitems: { delta: 'https://graph.microsoft.com/v1.0/sent-start' },
+        'INBOX-ID': { next: 'https://graph.microsoft.com/v1.0/inbox-mid-enumeration' },
+        'SENT-ID': { delta: 'https://graph.microsoft.com/v1.0/sent-start' },
       },
     };
     const batches = (await collect(source.pull(session, cursor))) as B[];
-    expect(batches[0].cursor).toMatchObject({
-      folders: {
-        inbox: { next: 'https://graph.microsoft.com/v1.0/inbox-mid-enumeration' },
-        sentitems: { delta: 'https://graph.microsoft.com/v1.0/sent-next' },
-      },
-    });
+    expect(batches.every((b) => b.phase === 'live')).toBe(true);
+    expect(batches.flatMap((b) => b.items.map((i) => i.conversationId))).toEqual(['CN']);
+    expect(batches[batches.length - 1].cursor).toEqual(
+      liveCursor('https://graph.microsoft.com/v1.0/inbox-next', 'https://graph.microsoft.com/v1.0/sent-next'),
+    );
   });
 });

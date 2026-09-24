@@ -1,7 +1,7 @@
 /**
  * Microsoft Graph mail endpoints used by this connector: the folder-delta
- * enumeration walk (`walkGraphDelta`/`accumulate`), full-conversation message
- * fetch, and the junk/deleted folder-id probe — ported from the legacy
+ * enumeration walk (`walkGraphDelta`/`accumulate`) and the full-conversation
+ * message fetch — ported from the legacy
  * v1 repo's `ms365/client.ts` + `ms-shared/walk-delta.ts`, reshaped onto
  * `GraphClient` (host `net.fetch`) instead of the legacy positional
  * `graphFetch(url, getToken)` function.
@@ -15,12 +15,9 @@ export const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 /**
  * Personal Microsoft accounts (MSA tenant) cannot delta-query /me/messages —
  * the endpoint only supports change tracking when scoped to a specific mail
- * folder. Stick to well-known folder names: 'inbox' is what most users mean
- * by "mail"; 'sentitems' covers outgoing threads so our own sent messages
- * join the thread their reply belongs to. (Verbatim from legacy oauth.ts.)
+ * folder, and it is NOT recursive: every tracked folder (subfolders
+ * included) is delta-queried on its own (see folders.ts).
  */
-export const MAIL_FOLDERS = ['inbox', 'sentitems'] as const;
-export type MailFolder = (typeof MAIL_FOLDERS)[number];
 
 /** Per-folder paging state: either we still need to fetch `next` (a
  *  nextLink URL produced by Graph), or we have a final `delta` URL that
@@ -85,32 +82,14 @@ export interface Ms365DeltaMessage {
   '@removed'?: { reason?: string };
 }
 
-/** Folds one delta page's messages into `into`, skipping drafts and
- *  messages parented in an excluded (junk/deleted) folder. Verbatim from
- *  legacy `ms365/backfill.ts`. */
-export function accumulate(
-  page: GraphDeltaPage<Ms365DeltaMessage>,
-  excluded: Set<string>,
-  into: Set<string>,
-): void {
+/** Folds one delta page's conversationIds into `into`. Eligibility is
+ *  folder membership only (spec §3.2): drafts count, and every page comes
+ *  from a tracked folder. `@removed` entries carry no conversationId and
+ *  fall out here — moves out of scope are reconcile's job. */
+export function accumulate(page: GraphDeltaPage<Ms365DeltaMessage>, into: Set<string>): void {
   for (const m of page.value) {
-    if (!m.conversationId) continue;
-    if (m.isDraft) continue;
-    if (m.parentFolderId && excluded.has(m.parentFolderId)) continue;
-    into.add(m.conversationId);
+    if (m.conversationId) into.add(m.conversationId);
   }
-}
-
-/** Resolves the junk-email and deleted-items folder ids so delta sweeps can
- *  exclude messages parented there — v1 parity (`resolveExcludedFolderIds`). */
-export async function resolveExcludedFolderIds(
-  client: GraphClient,
-): Promise<Set<string>> {
-  const [junk, trash] = await Promise.all([
-    client.request<{ id: string }>(`${GRAPH_BASE}/me/mailFolders/junkemail`),
-    client.request<{ id: string }>(`${GRAPH_BASE}/me/mailFolders/deleteditems`),
-  ]);
-  return new Set([junk.id, trash.id]);
 }
 
 // $select for the full conversation fetch. Deliberately excludes
