@@ -2,7 +2,7 @@
   "id": "kia.ms365",
   "name": "Microsoft 365",
   "version": "2.0.6",
-  "engine": "^2.0.0",
+  "engine": "^2.4.0",
   "entry": "dist/index.js",
   "caps": [
     "net"
