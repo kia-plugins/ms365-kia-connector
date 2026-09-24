@@ -6,7 +6,7 @@
  * reconcile staging ignores them and manageFolders collects into sets.
  */
 import { GRAPH_BASE } from './graph-api';
-import { GraphClient, statusOf } from './graph-client';
+import { GraphClient, isFolderGone } from './graph-client';
 
 export async function* listConversationIds(
   client: GraphClient,
@@ -26,7 +26,7 @@ export async function* listConversationIds(
       } catch (e) {
         // A folder deleted upstream since discovery (discovery never probes
         // leaves): its mail went with it, so listing it as empty is correct.
-        if (statusOf(e) !== 404) throw e;
+        if (!isFolderGone(e)) throw e;
         opts.warn?.(`ms365: mail folder ${id} no longer exists — skipped`);
         break;
       }

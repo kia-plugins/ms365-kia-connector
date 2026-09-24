@@ -68,5 +68,11 @@ export async function resolveScope(
     roots.map((r) => r.id),
     warn,
   );
+  // Every selected folder gone at once is an outage or a misread, not a user
+  // action: tracking nothing would drop every sync link and let reconcile
+  // list an empty mailbox. Fail the operation instead.
+  if (roots.length > 0 && tracked.size === 0) {
+    throw new Error('ms365: none of the selected mail folders exists — check the account');
+  }
   return { roots, legacy, tracked };
 }

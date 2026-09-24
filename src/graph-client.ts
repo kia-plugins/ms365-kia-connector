@@ -94,6 +94,19 @@ export function statusOf(e: unknown): number | undefined {
   return undefined;
 }
 
+/** A 404 that means "this folder (or item) no longer exists" — NOT any 404:
+ *  Graph also answers 404 for mailbox-level states (a mailbox not enabled
+ *  for REST, `ResourceNotFound` during licensing or migration). Reading
+ *  those as "folder deleted" would drop the whole tracked tree, so only
+ *  the folder/item codes qualify; everything else propagates. */
+export function isFolderGone(e: unknown): boolean {
+  return (
+    e instanceof GraphApiError &&
+    e.status === 404 &&
+    /"code"\s*:\s*"(ErrorItemNotFound|ErrorFolderNotFound)"/.test(e.message)
+  );
+}
+
 /** 429 = throttled; 5xx = transient. Other 4xx are caller errors.
  *  Deliberately status-only (v1 graph-fetch.ts parity) — MS Graph never
  *  needs a body-regex quota check the way Google's Drive API does. */

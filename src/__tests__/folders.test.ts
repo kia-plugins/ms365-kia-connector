@@ -106,6 +106,25 @@ describe('folder discovery', () => {
     expect(warns).toHaveLength(2);
   });
 
+  it('a mailbox-level 404 is an outage, not a deleted folder: discovery rejects', async () => {
+    const { c } = client({
+      folders: TREE,
+      custom: (url) =>
+        url.pathname.endsWith('/INBOX/childFolders')
+          ? jsonRes(404, { error: { code: 'MailboxNotEnabledForRESTAPI' } })
+          : undefined,
+    });
+    await expect(discoverTracked(c, ['INBOX'])).rejects.toThrow(/MailboxNotEnabledForRESTAPI/);
+    const { c: c2 } = client({
+      folders: TREE,
+      custom: (url) =>
+        url.pathname.endsWith('/mailFolders/archive')
+          ? jsonRes(404, { error: { code: 'ResourceNotFound' } })
+          : undefined,
+    });
+    await expect(resolveWellKnown(c2, ['archive'])).rejects.toThrow(/ResourceNotFound/);
+  });
+
   it('resolves well-known names; a missing one is omitted', async () => {
     const { c } = client({ folders: TREE });
     const got = await resolveWellKnown(c, ['inbox', 'sentitems', 'archive']);

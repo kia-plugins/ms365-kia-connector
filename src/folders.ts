@@ -6,7 +6,7 @@
  * mail is gone" to everything downstream.
  */
 import { GRAPH_BASE } from './graph-api';
-import { GraphClient, statusOf } from './graph-client';
+import { GraphClient, isFolderGone } from './graph-client';
 
 export interface MailFolderNode {
   id: string;
@@ -38,7 +38,7 @@ export async function getFolder(client: GraphClient, idOrName: string): Promise<
       `${GRAPH_BASE}/me/mailFolders/${encodeURIComponent(idOrName)}?$select=${FOLDER_SELECT}`,
     );
   } catch (e) {
-    if (statusOf(e) !== 404) throw e;
+    if (!isFolderGone(e)) throw e;
     return null;
   }
 }
@@ -120,7 +120,7 @@ export async function discoverTracked(
         // eslint-disable-next-line no-await-in-loop
         children = await listChildFolders(client, id);
       } catch (e) {
-        if (statusOf(e) !== 404) throw e;
+        if (!isFolderGone(e)) throw e;
         tracked.delete(id);
         warn(`ms365: mail folder ${id} no longer exists — skipped`);
         continue;

@@ -79,6 +79,17 @@ describe('reconcile', () => {
     expect(logs.some((l) => l.level === 'warn' && l.msg.includes('LEAF'))).toBe(true);
   });
 
+  it('a mailbox-level 404 on a folder listing rejects the pass', async () => {
+    const { run } = reconcile({
+      ...WORLD,
+      custom: (url) =>
+        url.pathname.endsWith('/SENT-ID/messages')
+          ? jsonRes(404, { error: { code: 'MailboxNotEnabledForRESTAPI' } })
+          : undefined,
+    });
+    await expect(run()).rejects.toThrow(/MailboxNotEnabledForRESTAPI/);
+  });
+
   it('refuses to run for an account with no declared scope', async () => {
     await expect(reconcile(WORLD, null).run()).rejects.toThrow(
       'ms365: reconcile without declared scope',

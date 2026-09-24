@@ -114,13 +114,16 @@ async function requireToken(session: Session): Promise<string> {
   return creds.accessToken;
 }
 
-/** The ids a v1 cursor's `inbox`/`sentitems` keys stood for. */
-async function legacyFolderIds(client: GraphClient): Promise<{ inbox: string; sentitems: string }> {
+/** The stored cursor as v2. A v1 cursor's `inbox`/`sentitems` keys are
+ *  resolved to their folder ids (only then is Graph asked). */
+async function loadCursor(client: GraphClient, stored: unknown): Promise<Ms365Cursor | null> {
+  const c = stored as Ms365Cursor | LegacyMs365Cursor | null;
+  if (c === null || 'v' in c) return c;
   const known = await resolveWellKnown(client, ['inbox', 'sentitems']);
   if (!known.inbox || !known.sentitems) {
     throw new Error('ms365: cannot resolve Inbox / Sent Items to migrate the sync cursor');
   }
-  return { inbox: known.inbox.id, sentitems: known.sentitems.id };
+  return migrateCursor(c, { inbox: known.inbox.id, sentitems: known.sentitems.id });
 }
 
 const JUNK_SUFFIX = ' (may contain phishing)';
@@ -207,11 +210,7 @@ export function createMs365Source(
       const scope = await resolveScope(client, session.account.config ?? {}, (m) =>
         session.log('warn', m),
       );
-      const stored = cursor as Ms365Cursor | LegacyMs365Cursor | null;
-      const migrated = migrateCursor(
-        stored,
-        stored && !('v' in stored) ? await legacyFolderIds(client) : { inbox: '', sentitems: '' },
-      );
+      const migrated = await loadCursor(client, cursor);
       const start = rescope(
         migrated ?? { v: 2, phase: 'enumerate', folders: {}, pending: [], retry: [] },
         scope.tracked,
@@ -300,11 +299,7 @@ export function createMs365Source(
       // indexed − staying (spec §3.4).
       const archiveRefs = prior.legacy ? [] : await leavingRefs(client, prior.tracked, next, warn);
 
-      const stored = session.account.cursor as Ms365Cursor | LegacyMs365Cursor | null;
-      const migrated = migrateCursor(
-        stored,
-        stored && !('v' in stored) ? await legacyFolderIds(client) : { inbox: '', sentitems: '' },
-      );
+      const migrated = await loadCursor(client, session.account.cursor);
       return {
         config: { ...config, folderRoots },
         cursor: migrated && rescope(migrated, next),

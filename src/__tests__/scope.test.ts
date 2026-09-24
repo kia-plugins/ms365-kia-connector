@@ -1,6 +1,6 @@
 import { GraphClient } from '../graph-client';
 import { configuredRoots, effectiveRoots, resolveScope } from '../scope';
-import { graphFetch, instantClock } from '../testing/harness';
+import { graphFetch, instantClock, jsonRes } from '../testing/harness';
 
 const client = () =>
   new GraphClient({ fetch: graphFetch().fetchFn, getToken: async () => 'tok', ...instantClock });
@@ -52,5 +52,23 @@ describe('resolveScope', () => {
     expect(scope.legacy).toBe(false);
     expect(scope.roots).toEqual([{ id: 'F1', name: 'Projects' }]);
     expect(Object.fromEntries(scope.tracked)).toEqual({ F1: 'F1', F2: 'F1' });
+  });
+});
+
+describe('resolveScope fails closed', () => {
+  it('when not one selected folder exists any more, it throws instead of tracking nothing', async () => {
+    const c = new GraphClient({
+      fetch: graphFetch({
+        custom: (url) =>
+          url.pathname.endsWith('/childFolders')
+            ? jsonRes(404, { error: { code: 'ErrorItemNotFound' } })
+            : undefined,
+      }).fetchFn,
+      getToken: async () => 'tok',
+      ...instantClock,
+    });
+    await expect(
+      resolveScope(c, { folderRoots: [{ id: 'F1', name: 'Projects' }, { id: 'F2', name: 'Other' }] }),
+    ).rejects.toThrow('ms365: none of the selected mail folders exists');
   });
 });
