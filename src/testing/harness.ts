@@ -23,6 +23,7 @@ import type {
 import type { HostResponse } from '@kiagent/connector-sdk/http';
 import { jsonRes, scriptedFetch } from '@kiagent/connector-sdk/testing';
 import type { NetFetch } from '../graph-client';
+import type { MailFolderNode } from '../folders';
 import type { GraphMessage } from '../parser';
 
 /** Re-exported so this harness stays the single import site for the tests:
@@ -60,6 +61,16 @@ export interface GraphWorld {
    *  an explicit `{ [id]: [] }` entry is how a test represents "deleted /
    *  zero-message conversation". */
   conversations?: Record<string, GraphMessage[] | GraphMessage[][]>;
+  /** The mail folder tree. `top` and each `children` list are single
+   *  pages unless given as explicit pages (array of arrays), paged with a
+   *  `pageToken` nextLink like `conversations`. A well-known name absent
+   *  from `wellKnown` answers 404 (junkemail/deleteditems keep their own
+   *  fields above). */
+  folders?: {
+    top: MailFolderNode[] | MailFolderNode[][];
+    children?: Record<string, MailFolderNode[] | MailFolderNode[][]>;
+    wellKnown?: Record<string, MailFolderNode>;
+  };
   /** Checked first for every request; return undefined to fall through to
    *  the tables above. `count` is the per-exact-URL call number (0-based) —
    *  handy for "fails N times then succeeds" retry fixtures. */
@@ -102,6 +113,23 @@ export function graphFetch(world: GraphWorld = {}): {
     if (p === '/v1.0/me/mailFolders/deleteditems') {
       return jsonRes(200, { id: world.trashFolderId ?? 'TRASH' });
     }
+    const folders = world.folders;
+    if (folders && p === '/v1.0/me/mailFolders') {
+      return jsonRes(200, pageOf(url, folders.top));
+    }
+    const kids = /^\/v1\.0\/me\/mailFolders\/([^/]+)\/childFolders$/.exec(p);
+    if (folders && kids) {
+      const list = folders.children?.[decodeURIComponent(kids[1])];
+      if (list === undefined) throw new Error(`fake graph: no children fixture for ${kids[1]}`);
+      return jsonRes(200, pageOf(url, list));
+    }
+    const named = /^\/v1\.0\/me\/mailFolders\/([^/]+)$/.exec(p);
+    if (folders && named) {
+      const hit = folders.wellKnown?.[decodeURIComponent(named[1])];
+      return hit
+        ? jsonRes(200, hit)
+        : jsonRes(404, { error: { code: 'ErrorFolderNotFound' } });
+    }
     if (p === '/v1.0/me/messages') {
       const filter = url.searchParams.get('$filter') ?? '';
       const m = /conversationId eq '([^']+)'/.exec(filter);
@@ -131,6 +159,21 @@ export function graphFetch(world: GraphWorld = {}): {
 
   const { fetchFn, calls } = scriptedFetch({ urls: world.urls, custom: route });
   return { fetchFn, calls };
+}
+
+/** One page of a (possibly paged) fixture list, with a `pageToken`
+ *  nextLink while pages remain. */
+function pageOf<T>(url: URL, raw: T[] | T[][]): { value: T[]; '@odata.nextLink'?: string } {
+  const pages: T[][] = raw.length && Array.isArray(raw[0]) ? (raw as T[][]) : [raw as T[]];
+  const tok = url.searchParams.get('pageToken');
+  const idx = tok ? Number(tok) : 0;
+  const body: { value: T[]; '@odata.nextLink'?: string } = { value: pages[idx] ?? [] };
+  if (idx + 1 < pages.length) {
+    const next = new URL(url.toString());
+    next.searchParams.set('pageToken', String(idx + 1));
+    body['@odata.nextLink'] = next.toString();
+  }
+  return body;
 }
 
 export function makeHost(fetchFn: NetFetch): HostFor<'net'> {
