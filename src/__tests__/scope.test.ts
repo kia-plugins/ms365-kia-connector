@@ -1,5 +1,5 @@
 import { GraphClient } from '../graph-client';
-import { configuredRoots, effectiveRoots } from '../scope';
+import { configuredRoots, effectiveRoots, resolveScope } from '../scope';
 import { graphFetch, instantClock } from '../testing/harness';
 
 const client = () =>
@@ -33,5 +33,24 @@ describe('scope config', () => {
       roots,
       legacy: false,
     });
+  });
+});
+
+describe('resolveScope', () => {
+  it('roots + legacy flag + the discovered tracked map, in one call', async () => {
+    const c = new GraphClient({
+      fetch: graphFetch({
+        folders: {
+          top: [],
+          children: { F1: [{ id: 'F2', displayName: 'Sub', childFolderCount: 0 }] },
+        },
+      }).fetchFn,
+      getToken: async () => 'tok',
+      ...instantClock,
+    });
+    const scope = await resolveScope(c, { folderRoots: [{ id: 'F1', name: 'Projects' }] });
+    expect(scope.legacy).toBe(false);
+    expect(scope.roots).toEqual([{ id: 'F1', name: 'Projects' }]);
+    expect(Object.fromEntries(scope.tracked)).toEqual({ F1: 'F1', F2: 'F1' });
   });
 });

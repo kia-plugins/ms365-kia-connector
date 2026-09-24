@@ -91,6 +91,21 @@ describe('folder discovery', () => {
     await expect(discoverTracked(c, ['INBOX'])).rejects.toThrow(/500/);
   });
 
+  it('a tracked folder deleted upstream (404) is dropped with a warning, not fatal', async () => {
+    const warns: string[] = [];
+    const { c } = client({
+      folders: TREE,
+      custom: (url) =>
+        url.pathname.endsWith('/GONE/childFolders') || url.pathname.endsWith('/A/childFolders')
+          ? jsonRes(404, { error: { code: 'ErrorItemNotFound' } })
+          : undefined,
+    });
+    const tracked = await discoverTracked(c, ['GONE', 'INBOX'], (m) => warns.push(m));
+    // The deleted root and the deleted child are gone; siblings survive.
+    expect(Object.fromEntries(tracked)).toEqual({ INBOX: 'INBOX', B: 'INBOX' });
+    expect(warns).toHaveLength(2);
+  });
+
   it('resolves well-known names; a missing one is omitted', async () => {
     const { c } = client({ folders: TREE });
     const got = await resolveWellKnown(c, ['inbox', 'sentitems', 'archive']);

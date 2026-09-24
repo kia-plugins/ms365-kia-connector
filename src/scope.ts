@@ -7,7 +7,7 @@
  */
 import type { FolderRootSelection } from '@kiagent/connector-sdk';
 import type { GraphClient } from './graph-client';
-import { resolveWellKnown } from './folders';
+import { discoverTracked, resolveWellKnown } from './folders';
 
 export const NEW_ACCOUNT_DEFAULTS = ['inbox', 'sentitems', 'archive'] as const;
 export const LEGACY_ENUMERATION = ['inbox', 'sentitems'] as const;
@@ -46,4 +46,27 @@ export async function effectiveRoots(
   const roots = configuredRoots(config);
   if (roots !== null) return { roots, legacy: false };
   return { roots: await wellKnownRoots(client, LEGACY_ENUMERATION), legacy: true };
+}
+
+export interface ResolvedScope {
+  roots: FolderRootSelection[];
+  legacy: boolean;
+  /** Every tracked folder (roots + descendants) → the root covering it. */
+  tracked: Map<string, string>;
+}
+
+/** The ONE place pull, reconcile and manageFolders get their folder set:
+ *  effective roots, then discovery. Fails if discovery fails (spec §3.1). */
+export async function resolveScope(
+  client: GraphClient,
+  config: Record<string, unknown>,
+  warn?: (msg: string) => void,
+): Promise<ResolvedScope> {
+  const { roots, legacy } = await effectiveRoots(client, config);
+  const tracked = await discoverTracked(
+    client,
+    roots.map((r) => r.id),
+    warn,
+  );
+  return { roots, legacy, tracked };
 }

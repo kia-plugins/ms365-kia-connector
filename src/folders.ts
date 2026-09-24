@@ -73,10 +73,16 @@ export function listChildFolders(client: GraphClient, id: string): Promise<MailF
 /** Every folder under the selected roots (roots included), mapped to the
  *  root that covers it. Each root's subtree is walked breadth-first, roots
  *  in order, so when roots overlap (a folder and its own descendant both
- *  selected) the first root in `rootIds` wins. */
+ *  selected) the first root in `rootIds` wins.
+ *
+ *  A folder whose own listing 404s was deleted upstream: that is a complete
+ *  answer, not a partial one, so it is dropped (with `warn`) rather than
+ *  failing discovery — otherwise one deleted root would fail every pull
+ *  AND the Manage picker needed to untick it. Any other error propagates. */
 export async function discoverTracked(
   client: GraphClient,
   rootIds: string[],
+  warn: (msg: string) => void = () => {},
 ): Promise<Map<string, string>> {
   const tracked = new Map<string, string>();
   for (const root of rootIds) {
@@ -86,8 +92,17 @@ export async function discoverTracked(
     while (queue.length > 0) {
       const { id, hasChildren } = queue.shift()!;
       if (!hasChildren) continue;
-      // eslint-disable-next-line no-await-in-loop
-      for (const child of await listChildFolders(client, id)) {
+      let children: MailFolderNode[];
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        children = await listChildFolders(client, id);
+      } catch (e) {
+        if (statusOf(e) !== 404) throw e;
+        tracked.delete(id);
+        warn(`ms365: mail folder ${id} no longer exists — skipped`);
+        continue;
+      }
+      for (const child of children) {
         if (tracked.has(child.id)) continue;
         tracked.set(child.id, root);
         queue.push({ id: child.id, hasChildren: child.childFolderCount > 0 });
