@@ -68,6 +68,11 @@ export interface GraphWorld {
     children?: Record<string, MailFolderNode[] | MailFolderNode[][]>;
     wellKnown?: Record<string, MailFolderNode>;
   };
+  /** folderId → the conversationIds of its messages, for the reconcile /
+   *  manageFolders listing `/me/mailFolders/{id}/messages?$select=
+   *  conversationId` (one page, or explicit pages). A folder absent here
+   *  throws (fails the test loudly). */
+  folderMessages?: Record<string, string[] | string[][]>;
   /** Checked first for every request; return undefined to fall through to
    *  the tables above. `count` is the per-exact-URL call number (0-based) —
    *  handy for "fails N times then succeeds" retry fixtures. */
@@ -113,6 +118,13 @@ export function graphFetch(world: GraphWorld = {}): {
       const list = folders.children?.[decodeURIComponent(kids[1])];
       if (list === undefined) throw new Error(`fake graph: no children fixture for ${kids[1]}`);
       return jsonRes(200, pageOf(url, list));
+    }
+    const listed = /^\/v1\.0\/me\/mailFolders\/([^/]+)\/messages$/.exec(p);
+    if (listed) {
+      const ids = world.folderMessages?.[decodeURIComponent(listed[1])];
+      if (ids === undefined) throw new Error(`fake graph: no folderMessages fixture for ${listed[1]}`);
+      const page = pageOf(url, ids);
+      return jsonRes(200, { ...page, value: page.value.map((conversationId) => ({ conversationId })) });
     }
     const named = /^\/v1\.0\/me\/mailFolders\/([^/]+)$/.exec(p);
     if (named) {

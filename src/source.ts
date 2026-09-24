@@ -44,8 +44,9 @@ import {
 } from './cursor';
 import { resolveWellKnown } from './folders';
 import { sync } from './sync';
-import { toDocument, type Ms365ThreadItem } from './to-document';
-import { NEW_ACCOUNT_DEFAULTS, resolveScope, wellKnownRoots } from './scope';
+import { EMAIL_THREAD_DOCUMENT_TYPE, toDocument, type Ms365ThreadItem } from './to-document';
+import { configuredRoots, NEW_ACCOUNT_DEFAULTS, resolveScope, wellKnownRoots } from './scope';
+import { listConversationIds } from './membership';
 
 /**
  * Graph resource scopes only — legacy's SCOPES (`openid email profile
@@ -179,6 +180,32 @@ export function createMs365Source(
         scope.tracked,
       );
       yield* sync(client, session, tenantKindOf(session), scope, start);
+    },
+
+    /** Spec §3.3: every conversation with a message in the tracked tree.
+     *  Core never calls this for an account without a declared scope
+     *  (legacy); the throw only guards that contract. A discovery failure
+     *  rejects before anything is yielded. */
+    async *reconcile(session: Session) {
+      const config = session.account.config ?? {};
+      if (configuredRoots(config) === null) {
+        throw new Error('ms365: reconcile without declared scope');
+      }
+      const client = clientFor(session);
+      const warn = (m: string) => session.log('warn', m);
+      const { tracked } = await resolveScope(client, config, warn);
+      let requests = 0;
+      for await (const ids of listConversationIds(client, tracked.keys(), {
+        signal: session.signal,
+        warn,
+        onRequest: () => (requests += 1),
+      })) {
+        yield ids.map((externalId) => ({ externalId, type: EMAIL_THREAD_DOCUMENT_TYPE }));
+      }
+      session.log(
+        'info',
+        `ms365 reconcile: ${tracked.size} folders listed in ${requests} requests`,
+      );
     },
 
     toDocument(item: Ms365ThreadItem): DocumentInput | null {
