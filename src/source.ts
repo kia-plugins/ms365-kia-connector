@@ -36,7 +36,7 @@ import type {
 } from '@kiagent/connector-sdk';
 import { GraphClient, statusOf, type GraphClientDeps } from './graph-client';
 import { GRAPH_BASE } from './graph-api';
-import type { Ms365Cursor } from './cursor';
+import type { LegacyMs365Cursor as Ms365Cursor } from './cursor';
 import { runBackfill } from './backfill';
 import { runDelta } from './delta';
 import { toDocument, type Ms365ThreadItem } from './to-document';

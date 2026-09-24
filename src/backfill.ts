@@ -8,7 +8,7 @@
  * document).
  */
 import type { Batch, Session } from '@kiagent/connector-sdk';
-import type { Ms365Cursor } from './cursor';
+import type { LegacyMs365Cursor as Ms365Cursor } from './cursor';
 import {
   accumulate,
   fetchConversationMessages,

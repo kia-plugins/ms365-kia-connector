@@ -14,7 +14,7 @@
  * (`every: '15m'`, see source.ts) plays that same external-timer role.
  */
 import type { Batch, ExternalRef, Session } from '@kiagent/connector-sdk';
-import type { Ms365Cursor } from './cursor';
+import type { LegacyMs365Cursor as Ms365Cursor } from './cursor';
 import {
   fetchConversationMessages,
   MAIL_FOLDERS,

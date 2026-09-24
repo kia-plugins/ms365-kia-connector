@@ -29,14 +29,15 @@ export type FolderState = { next: string } | { delta: string };
 
 export const SELECT_FIELDS = 'id,conversationId,parentFolderId,isDraft';
 
-export function initialDeltaUrl(folder: MailFolder): string {
-  return `${GRAPH_BASE}/me/mailFolders/${folder}/messages/delta?$select=${SELECT_FIELDS}&$top=100`;
+/** `folder` is a Graph folder id (or a well-known name). */
+export function initialDeltaUrl(folder: string): string {
+  return `${GRAPH_BASE}/me/mailFolders/${encodeURIComponent(folder)}/messages/delta?$select=${SELECT_FIELDS}&$top=100`;
 }
 
-export function primeDeltaUrl(folder: MailFolder, sinceIso: string): string {
+export function primeDeltaUrl(folder: string, sinceIso: string): string {
   const filter = `receivedDateTime ge ${sinceIso}`;
   return (
-    `${GRAPH_BASE}/me/mailFolders/${folder}/messages/delta` +
+    `${GRAPH_BASE}/me/mailFolders/${encodeURIComponent(folder)}/messages/delta` +
     `?$select=${SELECT_FIELDS}` +
     `&$filter=${encodeURIComponent(filter)}` +
     `&$top=100`
