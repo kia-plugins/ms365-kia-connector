@@ -30,6 +30,10 @@ export interface Ms365Cursor {
   pending: string[];
   total?: number;
   retry: RetryEntry[];
+  /** Set once this account enumerates WITH attachment children. A cursor
+   *  without it predates attachments and restarts enumeration once
+   *  (loadCursor) — unchanged threads re-upsert, the children land. */
+  attachments?: 1;
 }
 
 /** v1: three phases over the two well-known folder names. */
@@ -42,28 +46,6 @@ export type LegacyMs365Cursor =
       total: number;
     }
   | { phase: 'live'; folders: Record<MailFolder, FolderState> };
-
-/** v1 → v2 without re-downloading anything: the `inbox`/`sentitems` keys
- *  become their resolved folder ids, every link, `pending` and `total`
- *  kept. */
-export function migrateCursor(
-  c: Ms365Cursor | LegacyMs365Cursor | null,
-  wellKnownIds: Record<MailFolder, string>,
-): Ms365Cursor | null {
-  if (c === null || 'v' in c) return c;
-  const folders: Record<string, FolderState> = {};
-  for (const [name, state] of Object.entries(c.folders) as Array<[MailFolder, FolderState]>) {
-    folders[wellKnownIds[name]] = state;
-  }
-  return {
-    v: 2,
-    phase: c.phase,
-    folders,
-    pending: 'pending' in c ? [...c.pending] : [],
-    ...(c.phase === 'ingest' ? { total: c.total } : {}),
-    retry: [],
-  };
-}
 
 /** The ONE cursor surgery for a changed tracked set (every pull, and a
  *  scope Save): untracked folders' states are dropped, newly tracked
