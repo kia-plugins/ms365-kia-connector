@@ -3,8 +3,17 @@
  * (buildMs365Thread), reshaped as a PURE toDocument test (no DB, no
  * converter — see src/to-document.ts's module doc for what changed).
  */
-import { buildThreadUrl, EMAIL_THREAD_DOCUMENT_TYPE, toDocument } from '../to-document';
+import type { DocumentInput } from '@kiagent/connector-sdk';
+import {
+  buildThreadUrl,
+  EMAIL_THREAD_DOCUMENT_TYPE,
+  toDocument as toDocuments,
+  type Ms365ThreadItem,
+} from '../to-document';
 import { graphMsg } from '../testing/harness';
+
+/** These fixtures carry no attachments, so the thread is the only doc. */
+const toDocument = (item: Ms365ThreadItem) => toDocuments(item) as DocumentInput | null;
 
 describe('toDocument', () => {
   it('builds an email.thread document with markdown, participants, and metadata', () => {

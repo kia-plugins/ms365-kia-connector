@@ -151,6 +151,7 @@ describe('manageFolders', () => {
   it('removed folder states leave the cursor; kept and newly tracked ones stay / start', async () => {
     const cursor: Ms365Cursor = {
       v: 2,
+      attachments: 1,
       phase: 'live',
       folders: {
         'INBOX-ID': { delta: 'DI' },
@@ -167,17 +168,14 @@ describe('manageFolders', () => {
     expect(up.cursor!.pending).toEqual(['x']);
   });
 
-  it('a legacy v1 cursor is migrated before rescoping', async () => {
+  it('a cursor from before attachments is dropped (the next pull re-enumerates)', async () => {
     const up = await (
       await manage({
         pick: ['INBOX-ID', 'SENT-ID'],
         cursor: { phase: 'live', folders: { inbox: { delta: 'DI' }, sentitems: { delta: 'DS' } } },
       })
     ).run();
-    expect(up.cursor).toMatchObject({
-      v: 2,
-      folders: { 'INBOX-ID': { delta: 'DI' }, 'SENT-ID': { delta: 'DS' } },
-    });
+    expect(up.cursor).toBeNull();
   });
 
   it('a null cursor stays null', async () => {

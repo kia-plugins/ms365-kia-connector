@@ -38,6 +38,7 @@ function run(world: GraphWorld, config: Record<string, unknown>, cursor: unknown
 
 const live = (folders: Ms365Cursor['folders'], extra: Partial<Ms365Cursor> = {}): Ms365Cursor => ({
   v: 2,
+  attachments: 1,
   phase: 'live',
   folders,
   pending: [],
@@ -132,24 +133,22 @@ describe('pull over the tracked folder tree', () => {
     expect(last(bs).cursor.phase).toBe('live');
   });
 
-  it('a legacy v1 live cursor keeps its delta links: no initial delta for Inbox or Sent', async () => {
+  it.each([
+    ['a v1 cursor', { phase: 'live', folders: { inbox: { delta: `${G}/legacy-inbox` } } }],
+    [
+      'a v2 cursor from before attachments',
+      { v: 2, phase: 'live', folders: { 'INBOX-ID': { delta: `${G}/legacy-inbox` } }, pending: [], retry: [] },
+    ],
+  ])('%s restarts enumeration once, so every conversation re-emits with its attachments', async (_n, cursor) => {
     const { batches, calls } = run(
-      {
-        urls: {
-          [`${G}/legacy-inbox`]: { value: [], '@odata.deltaLink': `${G}/inbox-d2` },
-          [`${G}/legacy-sent`]: { value: [], '@odata.deltaLink': `${G}/sent-d2` },
-        },
-      },
-      {},
-      { phase: 'live', folders: { inbox: { delta: `${G}/legacy-inbox` }, sentitems: { delta: `${G}/legacy-sent` } } },
+      { urls: { [initialDeltaUrl('INBOX-ID')]: { value: [], '@odata.deltaLink': `${G}/inbox-d2` } } },
+      { folderRoots: INBOX_ROOT },
+      cursor,
     );
     const bs = await batches;
-    expect(calls).toContain(`${G}/legacy-inbox`);
-    expect(calls).toContain(`${G}/legacy-sent`);
-    expect(calls.some((u) => u.includes('/messages/delta?$select'))).toBe(false);
-    expect(last(bs).cursor).toEqual(
-      live({ 'INBOX-ID': { delta: `${G}/inbox-d2` }, 'SENT-ID': { delta: `${G}/sent-d2` } }),
-    );
+    expect(calls).not.toContain(`${G}/legacy-inbox`);
+    expect(calls.some((u) => u.includes('/messages/delta?$select'))).toBe(true);
+    expect(last(bs).cursor).toMatchObject({ v: 2, attachments: 1, phase: 'live' });
   });
 });
 

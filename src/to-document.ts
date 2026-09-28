@@ -61,13 +61,13 @@ export function buildThreadUrl(
  *  Return-Path / DSN multipart-report) is NOT ported — matching the gmail
  *  v2 builtin's precedent (`to-document.ts` there has no such filter
  *  either). Every conversation is now indexed regardless of these headers.
- *  DROPPED vs legacy: no attachment sub-documents (see graph-api.ts's
- *  CONV_SELECT comment — legacy's own attachment wiring was unreachable).
+ *  Attachments: every file attachment (bar tiny inline images) becomes a
+ *  bytes-less `attachment` child — see `attachmentChildren`.
  *  DROPPED vs legacy: HTML-only message bodies render as an empty body
  *  (legacy called its DB-backed `Converter` to turn `htmlBody` into
  *  markdown at ingest time; this pure v2 mapping has no converter to call,
  *  matching the same simplification already made in the gmail v2 port). */
-export function toDocument(item: Ms365ThreadItem): DocumentInput | null {
+export function toDocument(item: Ms365ThreadItem): DocumentInput | DocumentInput[] | null {
   if (item.messages.length === 0) return null;
 
   const parsed = item.messages.map(parseGraphMessage);
@@ -99,7 +99,7 @@ export function toDocument(item: Ms365ThreadItem): DocumentInput | null {
     ...new Set(parsed.flatMap((m) => [m.from, ...m.to, ...m.cc])),
   ];
 
-  return {
+  const thread: DocumentInput = {
     externalId: item.conversationId,
     type: EMAIL_THREAD_DOCUMENT_TYPE,
     title: subject,
@@ -129,6 +129,49 @@ export function toDocument(item: Ms365ThreadItem): DocumentInput | null {
     createdAt: last.date.toISOString(),
     ...(item.scopeRootId ? { scopeRootId: item.scopeRootId } : {}),
   };
+  const children = attachmentChildren(item);
+  return children.length ? [thread, ...children] : thread;
+}
+
+/** Inline images under this size are signatures/logos/tracking pixels —
+ *  the bar the Gmail and IMAP sources use too. */
+export const TINY_INLINE_IMAGE_BYTES = 8 * 1024;
+
+/**
+ * One bytes-less child per file attachment; kiagent-core's convert worker
+ * (and vision, for images and scans) pull the bytes via `fetchBytes`.
+ *
+ * Identity and metadata carry only what survives a folder move: the
+ * IMMUTABLE message id (GraphClient asks for immutable ids) plus name and
+ * size. The attachment id is deliberately NOT stored — metadata is hashed,
+ * so a changing id would re-write the child and wipe its extracted text.
+ * `fetchBytes` re-resolves the attachment by name + size.
+ */
+export function attachmentChildren(item: Ms365ThreadItem): DocumentInput[] {
+  const out: DocumentInput[] = [];
+  for (const m of item.messages) {
+    if (!m.id) continue;
+    for (const a of m.attachments ?? []) {
+      // item/reference attachments (an attached mail, a cloud link) have no
+      // file bytes to fetch.
+      if (a['@odata.type'] && a['@odata.type'] !== '#microsoft.graph.fileAttachment') continue;
+      const mime = (a.contentType ?? 'application/octet-stream').toLowerCase();
+      const sizeBytes = a.size ?? 0;
+      if (mime.startsWith('image/') && sizeBytes < TINY_INLINE_IMAGE_BYTES) continue;
+      const filename = a.name ?? null;
+      out.push({
+        externalId: `${m.id}#${filename ?? ''}#${sizeBytes}`,
+        type: 'attachment',
+        title: filename,
+        markdown: null,
+        metadata: { mime, filename, sizeBytes, messageId: m.id },
+        createdAt: m.receivedDateTime ?? null,
+        parent: { externalId: item.conversationId, type: EMAIL_THREAD_DOCUMENT_TYPE },
+        ...(item.scopeRootId ? { scopeRootId: item.scopeRootId } : {}),
+      });
+    }
+  }
+  return out;
 }
 
 function fmt(d: Date): string {

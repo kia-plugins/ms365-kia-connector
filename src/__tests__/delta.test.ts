@@ -22,6 +22,7 @@ function makeSource(world: Parameters<typeof graphFetch>[0]) {
 
 const liveCursor = (inboxDelta: string, sentDelta: string): Ms365Cursor => ({
   v: 2,
+  attachments: 1,
   phase: 'live',
   folders: { 'INBOX-ID': { delta: inboxDelta }, 'SENT-ID': { delta: sentDelta } },
   pending: [],

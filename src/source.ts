@@ -29,6 +29,7 @@
 import type {
   AuthChannel,
   Credentials,
+  Document,
   DocumentInput,
   ExternalRef,
   FolderNode,
@@ -39,9 +40,8 @@ import type {
   Source,
 } from '@kiagent/connector-sdk';
 import { GraphClient, statusOf, type GraphClientDeps } from './graph-client';
-import { GRAPH_BASE } from './graph-api';
+import { downloadAttachment, GRAPH_BASE } from './graph-api';
 import {
-  migrateCursor,
   rescope,
   type LegacyMs365Cursor,
   type Ms365Cursor,
@@ -114,16 +114,12 @@ async function requireToken(session: Session): Promise<string> {
   return creds.accessToken;
 }
 
-/** The stored cursor as v2. A v1 cursor's `inbox`/`sentitems` keys are
- *  resolved to their folder ids (only then is Graph asked). */
-async function loadCursor(client: GraphClient, stored: unknown): Promise<Ms365Cursor | null> {
+/** The stored cursor, or null to enumerate from scratch. Any cursor written
+ *  before attachment children (and immutable ids) — a v1 cursor included —
+ *  restarts once so every conversation re-emits with its attachments. */
+function loadCursor(stored: unknown): Ms365Cursor | null {
   const c = stored as Ms365Cursor | LegacyMs365Cursor | null;
-  if (c === null || 'v' in c) return c;
-  const known = await resolveWellKnown(client, ['inbox', 'sentitems']);
-  if (!known.inbox || !known.sentitems) {
-    throw new Error('ms365: cannot resolve Inbox / Sent Items to migrate the sync cursor');
-  }
-  return migrateCursor(c, { inbox: known.inbox.id, sentitems: known.sentitems.id });
+  return c !== null && 'v' in c && c.attachments === 1 ? c : null;
 }
 
 const JUNK_SUFFIX = ' (may contain phishing)';
@@ -168,7 +164,7 @@ export function createMs365Source(
     descriptor: {
       id: 'ms365',
       name: 'Microsoft 365',
-      documentTypes: ['email.thread'],
+      documentTypes: ['email.thread', 'attachment'],
       auth: 'oauth',
       multiAccount: true,
       cadence: { every: '15m' },
@@ -209,9 +205,16 @@ export function createMs365Source(
       const scope = await resolveScope(client, session.account.config ?? {}, (m) =>
         session.log('warn', m),
       );
-      const migrated = await loadCursor(client, cursor);
+      const migrated = loadCursor(cursor);
       const start = rescope(
-        migrated ?? { v: 2, phase: 'enumerate', folders: {}, pending: [], retry: [] },
+        migrated ?? {
+          v: 2,
+          phase: 'enumerate',
+          folders: {},
+          pending: [],
+          retry: [],
+          attachments: 1,
+        },
         scope.tracked,
       );
       yield* sync(client, session, tenantKindOf(session), scope, start);
@@ -297,7 +300,7 @@ export function createMs365Source(
       // indexed − staying (spec §3.4).
       const archiveRefs = prior.legacy ? [] : await leavingRefs(client, prior.tracked, next);
 
-      const migrated = await loadCursor(client, session.account.cursor);
+      const migrated = loadCursor(session.account.cursor);
       return {
         config: { ...config, folderRoots },
         cursor: migrated && rescope(migrated, next),
@@ -307,8 +310,23 @@ export function createMs365Source(
       };
     },
 
-    toDocument(item: Ms365ThreadItem): DocumentInput | null {
+    toDocument(item: Ms365ThreadItem): DocumentInput | DocumentInput[] | null {
       return toDocument(item);
+    },
+
+    /** Bytes of one attachment child, re-resolved by name + size under its
+     *  immutable message id (to-document.ts). `null` = gone upstream; a
+     *  throw (auth, network) is transient — core defers and retries. */
+    async fetchBytes(session: Session, doc: Document): Promise<Uint8Array | null> {
+      if (doc.type !== 'attachment') return null;
+      const meta = doc.metadata as { messageId?: unknown; filename?: unknown; sizeBytes?: unknown };
+      if (typeof meta.messageId !== 'string') return null;
+      return downloadAttachment(
+        clientFor(session),
+        meta.messageId,
+        typeof meta.filename === 'string' ? meta.filename : null,
+        typeof meta.sizeBytes === 'number' ? meta.sizeBytes : null,
+      );
     },
   };
 }

@@ -40,7 +40,10 @@
 import type { NetFetch } from '@kiagent/connector-sdk/http';
 export type { NetFetch };
 
-export type ResponseType = 'json' | 'text';
+/** Graph's opt-in for ids that survive folder moves. */
+export const IMMUTABLE_IDS = 'IdType="ImmutableId"';
+
+export type ResponseType = 'json' | 'text' | 'bytes';
 
 /** Max retries AFTER the initial request (v1 bearer-fetch MAX_ATTEMPTS). */
 const MAX_RETRIES = 4;
@@ -163,6 +166,12 @@ export class GraphClient {
             authorization: `Bearer ${token}`,
             accept: 'application/json',
             ...opts.extraHeaders,
+            // Immutable ids on EVERY request: Outlook item ids otherwise
+            // change when a message moves folders, and attachment children
+            // are keyed (and hashed) by their message id.
+            prefer: [IMMUTABLE_IDS, opts.extraHeaders?.prefer]
+              .filter(Boolean)
+              .join(', '),
           },
         })) as HostResponse;
       } catch (e) {
@@ -179,6 +188,7 @@ export class GraphClient {
 
       const r = res!;
       if (r.status >= 200 && r.status < 300) {
+        if (responseType === 'bytes') return r.body as unknown as T;
         const text = new TextDecoder().decode(r.body);
         if (responseType === 'text') return text as unknown as T;
         return (text ? JSON.parse(text) : undefined) as T;

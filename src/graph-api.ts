@@ -6,8 +6,8 @@
  * `GraphClient` (host `net.fetch`) instead of the legacy positional
  * `graphFetch(url, getToken)` function.
  */
-import { GraphClient } from './graph-client';
-import type { GraphMessage } from './parser';
+import { GraphApiError, GraphClient } from './graph-client';
+import type { GraphAttachment, GraphMessage } from './parser';
 
 /** Public, well-known Microsoft Graph v1.0 base URL — not a credential. */
 export const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
@@ -92,8 +92,9 @@ export function accumulate(page: GraphDeltaPage<Ms365DeltaMessage>, into: Set<st
   }
 }
 
-// $select for the full conversation fetch. Deliberately excludes
-// `attachments` — this connector does not ingest attachment bytes.
+// $select for the full conversation fetch. Attachment METADATA comes via
+// $expand (below), never contentBytes — bytes are pulled on demand by
+// fetchBytes.
 const CONV_SELECT =
   'id,subject,from,toRecipients,ccRecipients,bccRecipients,' +
   'receivedDateTime,internetMessageHeaders,body,bodyPreview,' +
@@ -114,6 +115,8 @@ export async function fetchConversationMessages(
   const initial = new URL(`${GRAPH_BASE}/me/messages`);
   initial.searchParams.set('$filter', `conversationId eq '${conversationId}'`);
   initial.searchParams.set('$select', CONV_SELECT);
+  // Not gated on `hasAttachments`: Graph reports false for inline-only mail.
+  initial.searchParams.set('$expand', `attachments($select=${ATTACHMENT_SELECT})`);
   initial.searchParams.set('$top', '50');
   let url: string | undefined = initial.toString();
   while (url) {
@@ -130,4 +133,37 @@ export async function fetchConversationMessages(
     return ta - tb;
   });
   return messages;
+}
+
+const ATTACHMENT_SELECT = 'id,name,contentType,size,isInline';
+
+/** The bytes of one attachment, re-resolved by name + size: attachment ids
+ *  are not stored (see to-document.ts), only the immutable message id.
+ *  `null` when the message or the attachment is gone. */
+export async function downloadAttachment(
+  client: GraphClient,
+  messageId: string,
+  filename: string | null,
+  sizeBytes: number | null,
+): Promise<Uint8Array | null> {
+  const base = `${GRAPH_BASE}/me/messages/${encodeURIComponent(messageId)}/attachments`;
+  let list: { value: GraphAttachment[] };
+  try {
+    list = await client.request(`${base}?$select=id,name,size`);
+  } catch (e) {
+    if (e instanceof GraphApiError && e.status === 404) return null;
+    throw e;
+  }
+  const byName = list.value.filter((a) => (a.name ?? null) === filename);
+  const hit = byName.find((a) => a.size === sizeBytes) ?? byName[0];
+  if (!hit?.id) return null;
+  try {
+    return await client.request<Uint8Array>(
+      `${base}/${encodeURIComponent(hit.id)}/$value`,
+      { responseType: 'bytes' },
+    );
+  } catch (e) {
+    if (e instanceof GraphApiError && e.status === 404) return null;
+    throw e;
+  }
 }

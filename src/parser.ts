@@ -36,6 +36,17 @@ export interface GraphMessage {
   internetMessageHeaders?: GraphInternetHeader[];
   parentFolderId?: string;
   isDraft?: boolean;
+  /** Metadata only — from `$expand=attachments($select=…)`. */
+  attachments?: GraphAttachment[];
+}
+
+export interface GraphAttachment {
+  '@odata.type'?: string;
+  id?: string;
+  name?: string;
+  contentType?: string;
+  size?: number;
+  isInline?: boolean;
 }
 
 export interface ParsedEmail {
