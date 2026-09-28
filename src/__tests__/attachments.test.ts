@@ -121,7 +121,7 @@ describe('fetchBytes', () => {
   it('re-resolves the attachment by name + size and downloads $value', async () => {
     const bytes = new Uint8Array([1, 2, 3]);
     const { src, session } = source((url) => {
-      if (url.toString() === `${base}?$select=id,name,size`)
+      if (url.toString() === `${base}?$select=id,name,size&$top=999`)
         return jsonRes(200, {
           value: [
             { id: 'OTHER', name: 'offer.docx', size: 11 },
@@ -136,6 +136,17 @@ describe('fetchBytes', () => {
       doc({ messageId: 'IMMUTABLE-M1', filename: 'offer.docx', sizeBytes: 33_630 }),
     );
     expect([...got!]).toEqual([1, 2, 3]);
+  });
+
+  it('never serves a same-named attachment of a different size', async () => {
+    const { src, session } = source((url) =>
+      url.pathname.endsWith('/attachments')
+        ? jsonRes(200, { value: [{ id: 'NEW', name: 'offer.docx', size: 40_000 }] })
+        : bytesRes(new Uint8Array([9])),
+    );
+    await expect(
+      src.fetchBytes!(session, doc({ messageId: 'IMMUTABLE-M1', filename: 'offer.docx', sizeBytes: 33_630 })),
+    ).resolves.toBeNull();
   });
 
   it('answers null (terminal) when the message is gone or the attachment no longer exists', async () => {

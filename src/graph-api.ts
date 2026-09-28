@@ -149,13 +149,16 @@ export async function downloadAttachment(
   const base = `${GRAPH_BASE}/me/messages/${encodeURIComponent(messageId)}/attachments`;
   let list: { value: GraphAttachment[] };
   try {
-    list = await client.request(`${base}?$select=id,name,size`);
+    // $top: the collection pages at 10 by default; a message rarely has more,
+    // but attachment 11 must not silently resolve to "gone".
+    list = await client.request(`${base}?$select=id,name,size&$top=999`);
   } catch (e) {
     if (e instanceof GraphApiError && e.status === 404) return null;
     throw e;
   }
-  const byName = list.value.filter((a) => (a.name ?? null) === filename);
-  const hit = byName.find((a) => a.size === sizeBytes) ?? byName[0];
+  // Name AND size, exactly: a same-named replacement (an edited draft) is a
+  // different attachment and must not fill this document's identity.
+  const hit = list.value.find((a) => (a.name ?? null) === filename && a.size === sizeBytes);
   if (!hit?.id) return null;
   try {
     return await client.request<Uint8Array>(
