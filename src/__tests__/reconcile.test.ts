@@ -95,3 +95,52 @@ describe('reconcile', () => {
     );
   });
 });
+
+describe('reconcile: calendar events (spec 2026-09-30 §6)', () => {
+  const DAY = 86_400_000;
+  const since = new Date(Date.now() - 365 * DAY).toISOString();
+  const old = new Date(Date.now() - 200 * DAY).toISOString().replace('Z', '');
+  const CALS = { value: [{ id: 'C1', name: 'Calendar', isDefaultCalendar: true }] };
+
+  function withCursor(world: GraphWorld, calendar?: unknown) {
+    const { fetchFn, calls } = graphFetch(world);
+    const source = createMs365Source(makeHost(fetchFn), instantClock);
+    const { session } = makeSession({
+      config: { folderRoots: ROOTS },
+      cursor: { v: 2, attachments: 1, phase: 'live', folders: {}, pending: [], retry: [], calendar },
+    });
+    return { calls, run: () => collect(source.reconcile!(session)) };
+  }
+
+  it('lists every calendar event from the fixed first-pull start, so an old one is kept', async () => {
+    const { run, calls } = withCursor(
+      {
+        ...WORLD,
+        calendars: CALS,
+        calendarViews: { C1: [{ id: 'OLD', start: { dateTime: old }, end: { dateTime: old } }] },
+      },
+      { since, cals: { C1: {} } },
+    );
+    const refs = (await run()).flat();
+    expect(refs).toContainEqual({ externalId: 'C1:OLD', type: 'calendar.event' });
+    expect(refs.some((r) => r.type === 'email.thread')).toBe(true);
+    const view = calls.find((u) => u.includes('/calendarView'))!;
+    expect(new URL(view).searchParams.get('startDateTime')).toBe(since);
+  });
+
+  it('no consent and never synced (403, no calendar cursor): mail refs only', async () => {
+    const refs = (await withCursor({ ...WORLD, calendarStatus: 403 }).run()).flat();
+    expect(refs.every((r) => r.type === 'email.thread')).toBe(true);
+    expect(refs.length).toBeGreaterThan(0);
+  });
+
+  it('a 403 after calendars synced fails the pass (nothing is archived)', async () => {
+    await expect(
+      withCursor({ ...WORLD, calendarStatus: 403 }, { since, cals: { C1: {} } }).run(),
+    ).rejects.toThrow();
+  });
+
+  it('a 500 fails the pass', async () => {
+    await expect(withCursor({ ...WORLD, calendarStatus: 500 }).run()).rejects.toThrow();
+  });
+});

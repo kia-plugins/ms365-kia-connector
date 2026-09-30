@@ -60,6 +60,7 @@ import { configuredRoots, NEW_ACCOUNT_DEFAULTS, resolveScope, wellKnownRoots } f
 import { listConversationIds } from './membership';
 import { calendarToDocument } from './calendar/document';
 import { listCalendars } from './calendar/graph';
+import { calendarRefs } from './calendar/reconcile';
 import { pullCalendars, selectedCalendars } from './calendar/pull';
 import type { CalendarItem, GraphCalendar } from './calendar/types';
 
@@ -280,6 +281,15 @@ export function createMs365Source(
       })) {
         yield ids.map((externalId) => ({ externalId, type: EMAIL_THREAD_DOCUMENT_TYPE }));
       }
+      // Core archives every unlisted document of the account, of any type:
+      // the calendar events are listed too (spec §6).
+      const calRefs = await calendarRefs(
+        client,
+        config,
+        (session.account.cursor as Ms365Cursor | null)?.calendar,
+        Date.now(),
+      );
+      if (calRefs.length) yield calRefs;
       session.log(
         'info',
         `ms365 reconcile: ${tracked.size} folders listed in ${requests} requests`,
