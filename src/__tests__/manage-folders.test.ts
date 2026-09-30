@@ -72,22 +72,40 @@ const ARCHIVE = { id: 'ARCHIVE-ID', name: 'Archive' };
 async function manage(opts: {
   pick: string[];
   folderRoots?: Array<{ id: string; name: string }>;
+  calendarRoots?: Array<{ id: string; name: string }>;
+  calendars?: unknown;
+  calendarStatus?: number;
   cursor?: unknown;
 }) {
-  const { fetchFn, calls } = graphFetch({ folders: TREE, folderMessages: FOLDER_MESSAGES });
+  const { fetchFn, calls } = graphFetch({
+    folders: TREE,
+    folderMessages: FOLDER_MESSAGES,
+    calendars: opts.calendars,
+    calendarStatus: opts.calendarStatus,
+  });
   const source = createMs365Source(makeHost(fetchFn), instantClock);
   const { session } = makeSession({
-    config: opts.folderRoots ? { tenantKind: 'work', folderRoots: opts.folderRoots } : { tenantKind: 'work' },
+    config: {
+      tenantKind: 'work',
+      ...(opts.folderRoots ? { folderRoots: opts.folderRoots } : {}),
+      ...(opts.calendarRoots ? { calendarRoots: opts.calendarRoots } : {}),
+    },
     cursor: opts.cursor,
   });
-  const seen: { spec?: FolderPickerSpec; roots?: FolderNode[] } = {};
+  const seen: { spec?: FolderPickerSpec; roots?: FolderNode[]; calendars?: FolderNode[] } = {};
   const channel: FolderSelectionChannel = {
     status: () => {},
     pickFolders: async (spec) => {
       seen.spec = spec;
       seen.roots = await spec.roots(spec.modes[0].key);
+      seen.calendars = spec.modes[1] ? await spec.roots(spec.modes[1].key) : [];
       const known = new Map<string, FolderNode>();
-      for (const n of [...seen.roots, ...(await spec.children('INBOX-ID')), ...(await spec.children('PROJ'))])
+      for (const n of [
+        ...seen.roots,
+        ...seen.calendars,
+        ...(await spec.children('INBOX-ID')),
+        ...(await spec.children('PROJ')),
+      ])
         known.set(n.id, n);
       return opts.pick.map((id) => known.get(id)!);
     },
@@ -104,7 +122,10 @@ describe('manageFolders', () => {
     const m = await manage({ pick: ['INBOX-ID'], folderRoots: [INBOX, { id: 'PROJ-A', name: 'Alpha' }] });
     await m.run();
     const spec = m.seen.spec!;
-    expect(spec.modes).toEqual([{ key: 'mail', label: 'Mail folders' }]);
+    expect(spec.modes).toEqual([
+      { key: 'mail', label: 'Mail folders' },
+      { key: 'calendars', label: 'Calendars' },
+    ]);
     expect(spec.multiSelect).toBe(true);
     expect(spec.purpose).toBe('manage');
     expect(spec.note).toBe('Mail outside the selected folders will be removed from the index');
@@ -185,12 +206,79 @@ describe('manageFolders', () => {
 
   it('an empty pick rejects', async () => {
     await expect((await manage({ pick: [], folderRoots: [INBOX] })).run()).rejects.toThrow(
-      'ms365: no folders selected',
+      'ms365: no mail folders selected',
     );
   });
 
   it('the stored name drops the Junk warning suffix', async () => {
     const up = await (await manage({ pick: ['INBOX-ID', 'JUNK-ID'], folderRoots: [INBOX] })).run();
     expect(up.config.folderRoots).toEqual([INBOX, { id: 'JUNK-ID', name: 'Junk Email' }]);
+  });
+});
+
+describe('manageFolders: the Calendars tab (spec 2026-09-30 §6)', () => {
+  const CALS = {
+    value: [
+      { id: 'CAL', name: 'Calendar', isDefaultCalendar: true, canEdit: true },
+      { id: 'TEAM', name: 'Team', canEdit: true },
+      { id: 'BDAY', name: 'Birthdays', canEdit: false },
+    ],
+  };
+  const cursorWithCal = {
+    v: 2,
+    attachments: 1,
+    phase: 'live',
+    folders: {},
+    pending: [],
+    retry: [],
+    calendar: { since: '2025-10-01T00:00:00.000Z', cals: { CAL: { e1: 'x' }, TEAM: { e2: 'y' } } },
+  };
+
+  it('lists the calendars flat; the default and owned ones are pre-checked', async () => {
+    const m = await manage({ pick: ['INBOX-ID', 'CAL'], folderRoots: [INBOX], calendars: CALS });
+    await m.run();
+    expect(m.seen.calendars).toEqual([
+      { id: 'CAL', name: 'Calendar', hasChildren: false },
+      { id: 'TEAM', name: 'Team', hasChildren: false },
+      { id: 'BDAY', name: 'Birthdays', hasChildren: false },
+    ]);
+    expect(m.seen.spec!.selected!.map((n) => n.id)).toEqual(['INBOX-ID', 'CAL', 'TEAM']);
+  });
+
+  it('unticking every calendar turns the calendar off: [] roots, their events archived, cursor pruned', async () => {
+    const m = await manage({ pick: ['INBOX-ID'], folderRoots: [INBOX], calendars: CALS, cursor: cursorWithCal });
+    const up = await m.run();
+    expect(up.config.calendarRoots).toEqual([]);
+    expect(up.config.folderRoots).toEqual([INBOX]);
+    expect(up.archiveScopeRootIds).toEqual(['CAL', 'TEAM']);
+    expect(up.cursor!.calendar!.cals).toEqual({});
+  });
+
+  it('no Calendars.Read consent yet (403): a mail Save leaves the calendar setting alone', async () => {
+    const m = await manage({ pick: ['INBOX-ID'], folderRoots: [INBOX], calendarStatus: 403 });
+    const up = await m.run();
+    expect(m.seen.calendars).toEqual([]);
+    expect(up.config).not.toHaveProperty('calendarRoots');
+    expect(up.archiveScopeRootIds).toEqual([]);
+  });
+
+  it('keeping a calendar but no mail folder is refused', async () => {
+    const m = await manage({ pick: ['CAL'], folderRoots: [INBOX], calendars: CALS });
+    await expect(m.run()).rejects.toThrow('ms365: no mail folders selected');
+  });
+
+  it('adding a calendar tracks it and archives nothing', async () => {
+    const m = await manage({
+      pick: ['INBOX-ID', 'CAL', 'BDAY'],
+      folderRoots: [INBOX],
+      calendarRoots: [{ id: 'CAL', name: 'Calendar' }],
+      calendars: CALS,
+    });
+    const up = await m.run();
+    expect(up.config.calendarRoots).toEqual([
+      { id: 'CAL', name: 'Calendar' },
+      { id: 'BDAY', name: 'Birthdays' },
+    ]);
+    expect(up.archiveScopeRootIds).toEqual([]);
   });
 });

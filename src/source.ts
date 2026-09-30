@@ -59,8 +59,9 @@ import { EMAIL_THREAD_DOCUMENT_TYPE, toDocument, type Ms365ThreadItem } from './
 import { configuredRoots, NEW_ACCOUNT_DEFAULTS, resolveScope, wellKnownRoots } from './scope';
 import { listConversationIds } from './membership';
 import { calendarToDocument } from './calendar/document';
-import { pullCalendars } from './calendar/pull';
-import type { CalendarItem } from './calendar/types';
+import { listCalendars } from './calendar/graph';
+import { pullCalendars, selectedCalendars } from './calendar/pull';
+import type { CalendarItem, GraphCalendar } from './calendar/types';
 
 /**
  * Graph resource scopes only — legacy's SCOPES (`openid email profile
@@ -303,27 +304,51 @@ export function createMs365Source(
         hasChildren: f.childFolderCount > 0,
       });
       const priorIds = prior.roots.map((r) => r.id);
+      const allCals = await listCalendars(client).catch((e) => {
+        // No Calendars.Read consent yet: the Calendars tab stays empty.
+        if (statusOf(e) === 403) return [] as GraphCalendar[];
+        throw e;
+      });
+      const priorCals = selectedCalendars(config, allCals);
+      const calIds = new Set(allCals.map((c) => c.id));
+      const calNode = (c: { id: string; name: string }): FolderNode => ({
+        id: c.id,
+        name: c.name,
+        hasChildren: false,
+      });
       const picked = await channel.pickFolders({
-        modes: [{ key: 'mail', label: 'Mail folders' }],
+        modes: [
+          { key: 'mail', label: 'Mail folders' },
+          { key: 'calendars', label: 'Calendars' },
+        ],
         multiSelect: true,
         purpose: 'manage',
         note: MANAGE_NOTE,
-        selected: prior.roots.map((r) => ({
-          id: r.id,
-          name: r.name,
-          hasChildren: [...prior.tracked].some(([f, root]) => root === r.id && f !== r.id),
-        })),
+        selected: [
+          ...prior.roots.map((r) => ({
+            id: r.id,
+            name: r.name,
+            hasChildren: [...prior.tracked].some(([f, root]) => root === r.id && f !== r.id),
+          })),
+          ...priorCals.map(calNode),
+        ],
         expand: await ancestorsOf(client, priorIds, known.msgfolderroot?.id),
-        roots: async () => (await listTopFolders(client)).map(toNode),
-        children: async (id) => (await listChildFolders(client, id)).map(toNode),
+        roots: async (mode) =>
+          mode === 'calendars'
+            ? allCals.map(calNode)
+            : (await listTopFolders(client)).map(toNode),
+        children: async (id) =>
+          calIds.has(id) ? [] : (await listChildFolders(client, id)).map(toNode),
       });
-      if (picked.length === 0) throw new Error('ms365: no folders selected');
+      const pickedCals = picked.filter((n) => calIds.has(n.id));
+      const pickedMail = picked.filter((n) => !calIds.has(n.id));
+      if (pickedMail.length === 0) throw new Error('ms365: no mail folders selected');
 
       // Retained roots in prior order, then new ones in pick order.
-      const pickedIds = new Set(picked.map((n) => n.id));
+      const pickedIds = new Set(pickedMail.map((n) => n.id));
       const folderRoots = [
         ...prior.roots.filter((r) => pickedIds.has(r.id)),
-        ...picked
+        ...pickedMail
           .filter((n) => !priorIds.includes(n.id))
           .map((n) => ({
             id: n.id,
@@ -340,11 +365,30 @@ export function createMs365Source(
       // indexed − staying (spec §3.4).
       const archiveRefs = prior.legacy ? [] : await leavingRefs(client, prior.tracked, next);
 
+      // Calendars: an explicit list from now on ([] = calendar off), but only
+      // when the tab listed any: without consent (403) or calendars, a mail
+      // Save must not switch the calendar off. An unticked calendar's events
+      // carry its id as scopeRootId, so archiveScopeRootIds archives them.
+      const calendarRoots = pickedCals.map((n) => ({ id: n.id, name: n.name }));
+      const keepCal = new Set(calendarRoots.map((r) => r.id));
+      const calConfig = allCals.length ? { calendarRoots } : {};
       const migrated = loadCursor(session.account.cursor);
+      const cursor = migrated && rescope(migrated, next);
       return {
-        config: { ...config, folderRoots },
-        cursor: migrated && rescope(migrated, next),
-        archiveScopeRootIds: [],
+        config: { ...config, folderRoots, ...calConfig },
+        cursor:
+          cursor && cursor.calendar && allCals.length
+            ? {
+                ...cursor,
+                calendar: {
+                  ...cursor.calendar,
+                  cals: Object.fromEntries(
+                    Object.entries(cursor.calendar.cals).filter(([id]) => keepCal.has(id)),
+                  ),
+                },
+              }
+            : cursor,
+        archiveScopeRootIds: priorCals.map((c) => c.id).filter((id) => !keepCal.has(id)),
         reattributeScopeRoots: [],
         archiveRefs,
       };
