@@ -159,3 +159,22 @@ describe('connect — default folder selection', () => {
     expect(source.descriptor.folderScope).toBe(true);
   });
 });
+
+describe('reauthenticate (Reconnect grants Calendars.Read to an existing account)', () => {
+  const account = { identifier: 'me@x.com' } as never;
+
+  it('signs in with the 3.0.0 scopes and accepts the same account', async () => {
+    const { fetchFn } = graphFetch({ about: { mail: 'Me@X.com' } });
+    const source = createMs365Source(makeHost(fetchFn), instantClock);
+    const { auth, getScopes } = makeAuth();
+    await expect(source.reauthenticate!(account, auth)).resolves.toBeUndefined();
+    expect(getScopes()).toEqual(SCOPES);
+  });
+
+  it('refuses a different Microsoft account', async () => {
+    const { fetchFn } = graphFetch({ about: { mail: 'other@x.com' } });
+    const source = createMs365Source(makeHost(fetchFn), instantClock);
+    const { auth } = makeAuth();
+    await expect(source.reauthenticate!(account, auth)).rejects.toThrow('signed in as other@x.com');
+  });
+});

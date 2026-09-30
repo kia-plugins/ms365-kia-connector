@@ -27,6 +27,7 @@
  *    credentials; this connector holds none (see README's Privacy section).
  */
 import type {
+  Account,
   AuthChannel,
   Credentials,
   Document,
@@ -299,6 +300,28 @@ export function createMs365Source(
     /** Spec §3.4: the Tracked folders picker over the Outlook folder tree.
      *  Persists nothing — core applies the returned config, cursor and
      *  `archiveRefs` in one transaction. */
+    /** Reconnect: a fresh sign-in with the current scopes (how an account
+     *  from before 3.0.0 grants Calendars.Read), refused for a different
+     *  Microsoft account. */
+    async reauthenticate(account: Account, auth: AuthChannel) {
+      auth.status('Waiting for Microsoft sign-in…');
+      const creds = await auth.oauth(SCOPES);
+      const token = creds.accessToken;
+      if (!token) throw new Error('ms365: Microsoft sign-in returned no access token');
+      auth.status('Verifying the Microsoft account…');
+      const client = new GraphClient({ fetch: host.net.fetch, getToken: async () => token, ...clock });
+      const me = await client.request<{ mail?: string | null; userPrincipalName?: string }>(
+        `${GRAPH_BASE}/me?$select=mail,userPrincipalName`,
+      );
+      const who = me.mail || me.userPrincipalName || '';
+      const fold = (x: string) => x.trim().toLowerCase();
+      if (fold(who) !== fold(account.identifier)) {
+        throw new Error(
+          `ms365: signed in as ${who}, but this account is ${account.identifier} — sign in with the original Microsoft account`,
+        );
+      }
+    },
+
     async manageFolders(
       session: Session,
       channel: FolderSelectionChannel,
