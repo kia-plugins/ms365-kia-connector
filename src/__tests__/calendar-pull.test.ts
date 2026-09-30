@@ -72,3 +72,15 @@ test('a calendar colour that is not #rrggbb (Graph "auto", "") falls back to the
   const r = await pullCalendars(c, {}, undefined, NOW);
   expect(r.items.map((i) => i.calendar.color)).toEqual([null, null, '#A1B2C3']);
 });
+
+test('calendarView asks for UTC times and text bodies', async () => {
+  const seen: Array<Record<string, string> | undefined> = [];
+  const c = {
+    request: async <T,>(url: string, opts?: { extraHeaders?: Record<string, string> }): Promise<T> => {
+      if (url.includes('/calendarView')) seen.push(opts?.extraHeaders);
+      return (url.includes('/me/calendars?') ? cals : { value: [] }) as T;
+    },
+  };
+  await pullCalendars(c, {}, undefined, NOW);
+  expect(seen[0]).toEqual({ prefer: 'outlook.timezone="UTC", outlook.body-content-type="text"' });
+});

@@ -12,7 +12,7 @@ const base = {
   responseStatus: { response: 'accepted' },
   onlineMeeting: { joinUrl: 'https://teams.microsoft.com/l/meetup-join/1' },
   location: { displayName: 'Room 1' },
-  body: { contentType: 'html', content: '<p>Agenda:<br>1. Q4</p>' },
+  body: { contentType: 'text', content: 'Agenda:\n1. Q4' },
   originalStartTimeZone: 'W. Europe Standard Time',
 };
 
@@ -49,4 +49,20 @@ test('an all-day event carries local dates, end exclusive', () => {
 test('cancelled events are not live', () => {
   expect(isLiveEvent({ ...base, isCancelled: true } as never)).toBe(false);
   expect(isLiveEvent(base as never)).toBe(true);
+});
+
+test('an all-day event in a non-UTC calendar keeps its local dates (UTC-preferred times sit at 22:00 the day before)', () => {
+  const d = calendarToDocument({ calendar: cal, calendarEvent: {
+    ...base, isAllDay: true,
+    start: { dateTime: '2026-09-30T22:00:00.0000000', timeZone: 'UTC' },
+    end: { dateTime: '2026-10-02T22:00:00.0000000', timeZone: 'UTC' },
+  } as never });
+  expect(d.metadata).toMatchObject({ allDay: true, startDate: '2026-10-01', endDate: '2026-10-03' });
+});
+
+test('the description is the text body Graph returns (outlook.body-content-type="text")', () => {
+  const d = calendarToDocument({ calendar: cal, calendarEvent: {
+    ...base, body: { contentType: 'text', content: '  Agenda:\n1. Q4\n' },
+  } as never });
+  expect(descriptionFromMarkdown(d.markdown!)).toBe('Agenda:\n1. Q4');
 });

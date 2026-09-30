@@ -4,7 +4,8 @@ import type { GraphCalendar, GraphEvent } from './types';
 export interface CalClient {
   request<T>(url: string, opts?: { extraHeaders?: Record<string, string> }): Promise<T>;
 }
-const UTC = { prefer: 'outlook.timezone="UTC"' };
+/** UTC times (document.ts reads them as such) and text bodies. */
+const UTC = { prefer: 'outlook.timezone="UTC", outlook.body-content-type="text"' };
 
 export async function listCalendars(c: CalClient): Promise<GraphCalendar[]> {
   const out: GraphCalendar[] = [];

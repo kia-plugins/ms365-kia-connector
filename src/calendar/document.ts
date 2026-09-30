@@ -9,7 +9,14 @@ export const isLiveEvent = (e: GraphEvent): boolean => e.isCancelled !== true;
  *  zone, UTC here. */
 const utc = (t?: GraphDateTime): string | null =>
   t?.dateTime ? new Date(`${t.dateTime.replace(/(\.\d{3})\d*$/, '$1')}Z`).toISOString() : null;
-const datePart = (t?: GraphDateTime): string | undefined => t?.dateTime?.slice(0, 10);
+/** An all-day event's local date. Graph stores it at the calendar's
+ *  midnight and, asked for UTC, returns that instant (Berlin: 22:00 the day
+ *  before); the nearest UTC midnight is the local date for any offset in
+ *  (−12 h, +12 h]. */
+const datePart = (t?: GraphDateTime): string | undefined => {
+  const ms = t?.dateTime ? Date.parse(`${t.dateTime.replace(/(\.\d{3})\d*$/, '$1')}Z`) : NaN;
+  return Number.isFinite(ms) ? new Date(Math.round(ms / 86_400_000) * 86_400_000).toISOString().slice(0, 10) : undefined;
+};
 
 const RESPONSE: Record<string, string> = {
   accepted: 'accepted', tentativelyAccepted: 'tentative', declined: 'declined',
@@ -17,12 +24,9 @@ const RESPONSE: Record<string, string> = {
 };
 const response = (r?: string): string | null => (r ? RESPONSE[r] ?? r : null);
 
-const text = (e: GraphEvent): string => {
-  const c = e.body?.content ?? '';
-  if (e.body?.contentType !== 'html') return c.trim();
-  return c.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n').replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
-};
+/** The pull asks Graph for text bodies (`outlook.body-content-type`), as
+ *  the mail half does. */
+const text = (e: GraphEvent): string => e.body?.content?.trim() ?? '';
 
 export function calendarToDocument(item: CalendarItem): DocumentInput {
   const { calendar: cal, calendarEvent: e } = item;
