@@ -38,10 +38,12 @@ import type {
   HostFor,
   Session,
   Source,
+  SourceDescriptor,
 } from '@kiagent/connector-sdk';
 import { GraphClient, statusOf, type GraphClientDeps } from './graph-client';
 import { downloadAttachment, GRAPH_BASE } from './graph-api';
 import {
+  RESCAN,
   rescope,
   type LegacyMs365Cursor,
   type Ms365Cursor,
@@ -66,9 +68,11 @@ import { listConversationIds } from './membership';
  * consume (tenant kind and identity both come from live Graph calls instead
  * — see `connect` below) and the platform's `microsoft` OAuth provider owns
  * refresh-token issuance/rotation on its own, outside any scope this source
- * requests.
+ * requests. `Mail.Send` backs the outbound Sender (sender.ts); accounts
+ * connected before it get a "reconnect to grant send permission" on their
+ * first send and keep syncing meanwhile.
  */
-export const SCOPES = ['Mail.Read', 'User.Read'];
+export const SCOPES = ['Mail.Read', 'Mail.Send', 'User.Read'];
 
 type TenantKind = 'work' | 'personal';
 
@@ -114,12 +118,14 @@ async function requireToken(session: Session): Promise<string> {
   return creds.accessToken;
 }
 
-/** The stored cursor, or null to enumerate from scratch. Any cursor written
- *  before attachment children (and immutable ids) — a v1 cursor included —
- *  restarts once so every conversation re-emits with its attachments. */
+/** The stored cursor, or null to enumerate from scratch. A cursor from
+ *  before the current `RESCAN` generation — v1, pre-attachments
+ *  (`attachments: 1`), pre-reply-targets — restarts enumeration once, so
+ *  every conversation re-emits with its attachment children and its reply
+ *  targets. */
 function loadCursor(stored: unknown): Ms365Cursor | null {
   const c = stored as Ms365Cursor | LegacyMs365Cursor | null;
-  return c !== null && 'v' in c && c.attachments === 1 ? c : null;
+  return c !== null && 'v' in c && c.rescan === RESCAN ? c : null;
 }
 
 const JUNK_SUFFIX = ' (may contain phishing)';
@@ -160,16 +166,22 @@ export function createMs365Source(
       ...clock,
     });
 
+  // `compose: 'email'`: accounts can originate mail (draft_message); the
+  // Sender sends as the signed-in mailbox. Typed locally until the SDK
+  // carries the field (kiagent-core SourceDescriptor.compose).
+  const descriptor: SourceDescriptor & { compose: 'email' } = {
+    id: 'ms365',
+    name: 'Microsoft 365',
+    documentTypes: ['email.thread', 'attachment'],
+    auth: 'oauth',
+    multiAccount: true,
+    cadence: { every: '15m' },
+    folderScope: true,
+    compose: 'email',
+  };
+
   return {
-    descriptor: {
-      id: 'ms365',
-      name: 'Microsoft 365',
-      documentTypes: ['email.thread', 'attachment'],
-      auth: 'oauth',
-      multiAccount: true,
-      cadence: { every: '15m' },
-      folderScope: true,
-    },
+    descriptor,
 
     async connect(auth: AuthChannel) {
       auth.status('Waiting for Microsoft sign-in…');
@@ -213,11 +225,16 @@ export function createMs365Source(
           folders: {},
           pending: [],
           retry: [],
-          attachments: 1,
+          rescan: RESCAN,
         },
         scope.tracked,
       );
-      yield* sync(client, session, tenantKindOf(session), scope, start);
+      // Stamp the account's own address on every item: reply targets never
+      // address you (reply-target.ts).
+      const selfAddress = session.account.identifier;
+      for await (const batch of sync(client, session, tenantKindOf(session), scope, start)) {
+        yield { ...batch, items: batch.items.map((i) => ({ ...i, selfAddress })) };
+      }
     },
 
     /** Spec §3.3: every conversation with a message in the tracked tree.

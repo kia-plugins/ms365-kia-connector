@@ -30,6 +30,8 @@ export interface GraphMessage {
   toRecipients?: GraphRecipient[];
   ccRecipients?: GraphRecipient[];
   bccRecipients?: GraphRecipient[];
+  /** Graph sends `[]` when the message sets no Reply-To. */
+  replyTo?: GraphRecipient[];
   receivedDateTime?: string;
   body?: { contentType?: 'text' | 'html'; content?: string };
   hasAttachments?: boolean;

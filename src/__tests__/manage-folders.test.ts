@@ -151,7 +151,7 @@ describe('manageFolders', () => {
   it('removed folder states leave the cursor; kept and newly tracked ones stay / start', async () => {
     const cursor: Ms365Cursor = {
       v: 2,
-      attachments: 1,
+      rescan: 2,
       phase: 'live',
       folders: {
         'INBOX-ID': { delta: 'DI' },

@@ -62,13 +62,27 @@ interface HostResponse {
 /** Non-2xx Graph response (except 401). Message format is load-bearing —
  *  see the module doc. */
 export class GraphApiError extends Error {
+  /** Graph's `error.code` (e.g. ErrorItemNotFound), when the body had one. */
+  public readonly code: string | undefined;
+
   constructor(
     public readonly status: number,
     public readonly url: string,
     body: string,
+    fullBody: string = body,
   ) {
     super(`graph ${status} ${url} ${body}`);
     this.name = 'GraphApiError';
+    this.code = graphErrorCode(fullBody);
+  }
+}
+
+function graphErrorCode(body: string): string | undefined {
+  try {
+    const code = (JSON.parse(body) as { error?: { code?: unknown } })?.error?.code;
+    return typeof code === 'string' ? code : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -212,6 +226,60 @@ export class GraphClient {
         continue;
       }
       throw new GraphApiError(r.status, url, body);
+    }
+  }
+
+  /**
+   * One outbound POST (send a reply / a new mail). NOT `request()`'s retry
+   * policy: a send is not idempotent, so a network error or 5xx — where
+   * Graph may already have accepted the message — is thrown at once, never
+   * retried. Only a 429 (rejected before processing) is retried, and only
+   * while its wait still fits the ONE overall deadline, which also bounds
+   * every attempt through the host fetch's own timeout: nothing this call
+   * started may still be in flight after it has thrown.
+   */
+  async post(
+    url: string,
+    body: unknown,
+    opts: { deadlineMs: number; now?: () => number },
+  ): Promise<void> {
+    const now = opts.now ?? Date.now;
+    const deadline = now() + opts.deadlineMs;
+    for (let attempt = 0; ; attempt++) {
+      const token = await this.getToken();
+      const remaining = deadline - now();
+      if (remaining <= 0) throw new Error(`graph send timed out ${url}`);
+      const r = (await this.fetchFn(url, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          accept: 'application/json',
+          'content-type': 'application/json',
+          prefer: IMMUTABLE_IDS,
+        },
+        body: JSON.stringify(body),
+        timeoutMs: Math.max(1, Math.floor(remaining)),
+      } as never)) as HostResponse;
+      if (r.status >= 200 && r.status < 300) return;
+      const full = new TextDecoder().decode(r.body);
+      const text = full.slice(0, BODY_SNIPPET_CHARS);
+      if (r.status === 401) {
+        throw new Ms365AuthError(`graph 401 ${url} ${text} — reconnect the account`);
+      }
+      if (r.status === 429 && attempt < MAX_RETRIES) {
+        const retryAfterS = Number(r.headers['retry-after']);
+        const delay =
+          Number.isFinite(retryAfterS) && retryAfterS > 0
+            ? retryAfterS * 1000
+            : this.backoff(attempt);
+        // Leave room for the retry itself; a wait that cannot fit is
+        // surfaced as the 429 it is (the caller reports "nothing was sent").
+        if (now() + delay + 5_000 < deadline) {
+          await this.sleepFn(delay);
+          continue;
+        }
+      }
+      throw new GraphApiError(r.status, url, text, full);
     }
   }
 

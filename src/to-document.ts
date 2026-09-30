@@ -1,5 +1,6 @@
 import type { DocumentInput } from '@kiagent/connector-sdk';
 import { parseGraphMessage, type GraphMessage } from './parser';
+import { replyTargets } from './reply-target';
 
 /** Shared with the gmail v2 builtin's document-type convention — this
  *  connector emits the SAME generic `email.thread` type (verified against
@@ -29,6 +30,9 @@ export interface Ms365ThreadItem {
    *  `null` for a legacy account. Informational — ms365 never archives by
    *  stamp (spec §3.2). */
   scopeRootId: string | null;
+  /** The account's own address (`account.identifier`), stamped by pull() —
+   *  reply targets never address you. Absent → nothing counts as self. */
+  selfAddress?: string;
 }
 
 /**
@@ -99,6 +103,9 @@ export function toDocument(item: Ms365ThreadItem): DocumentInput | DocumentInput
     ...new Set(parsed.flatMap((m) => [m.from, ...m.to, ...m.cc])),
   ];
 
+  // Reply targets for kiagent-core's draft_reply (reply-target.ts). Absent
+  // when no message names anyone but you.
+  const outbound = replyTargets(item.messages, item.selfAddress);
   const thread: DocumentInput = {
     externalId: item.conversationId,
     type: EMAIL_THREAD_DOCUMENT_TYPE,
@@ -122,6 +129,7 @@ export function toDocument(item: Ms365ThreadItem): DocumentInput | DocumentInput
         date: m.date.toISOString(),
         snippet: m.body.slice(0, 200),
       })),
+      ...(outbound ? { outbound } : {}),
     },
     // Last message date, matching the gmail v2 port's same deliberate
     // deviation from legacy (which stamped created_at from the FIRST
