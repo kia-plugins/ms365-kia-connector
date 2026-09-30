@@ -177,9 +177,8 @@ export function createMs365Source(
     });
 
   // `compose: 'email'`: accounts can originate mail (draft_message); the
-  // Sender sends as the signed-in mailbox. Typed locally until the SDK
-  // carries the field (kiagent-core SourceDescriptor.compose).
-  const descriptor: SourceDescriptor & { compose: 'email' } = {
+  // Sender sends as the signed-in mailbox.
+  const descriptor: SourceDescriptor = {
     id: 'ms365',
     name: 'Microsoft 365',
     documentTypes: ['email.thread', 'attachment', 'calendar.event'],
