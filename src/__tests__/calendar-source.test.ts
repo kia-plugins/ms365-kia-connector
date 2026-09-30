@@ -21,7 +21,7 @@ const G = 'https://graph.microsoft.com/v1.0';
 const INBOX_ROOT = [{ id: 'INBOX-ID', name: 'Inbox' }];
 const live: Ms365Cursor = {
   v: 2,
-  attachments: 1,
+  rescan: 2,
   phase: 'live',
   folders: { 'INBOX-ID': { delta: `${G}/inbox-d` } },
   pending: [],

@@ -5,7 +5,8 @@
   "engine": "^2.6.0",
   "entry": "dist/index.js",
   "caps": [
-    "net"
+    "net",
+    "send"
   ],
   "contributes": {
     "sources": [
@@ -14,7 +15,9 @@
         "oauth": "microsoft"
       }
     ],
-    "senders": []
+    "senders": [
+      "ms365"
+    ]
   },
   "icon": "icon.png"
 }

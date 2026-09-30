@@ -38,7 +38,7 @@ function run(world: GraphWorld, config: Record<string, unknown>, cursor: unknown
 
 const live = (folders: Ms365Cursor['folders'], extra: Partial<Ms365Cursor> = {}): Ms365Cursor => ({
   v: 2,
-  attachments: 1,
+  rescan: 2,
   phase: 'live',
   folders,
   pending: [],
@@ -139,7 +139,18 @@ describe('pull over the tracked folder tree', () => {
       'a v2 cursor from before attachments',
       { v: 2, phase: 'live', folders: { 'INBOX-ID': { delta: `${G}/legacy-inbox` } }, pending: [], retry: [] },
     ],
-  ])('%s restarts enumeration once, so every conversation re-emits with its attachments', async (_n, cursor) => {
+    [
+      'a 2.2.0 cursor (attachments, no reply targets)',
+      {
+        v: 2,
+        phase: 'live',
+        folders: { 'INBOX-ID': { delta: `${G}/legacy-inbox` } },
+        pending: [],
+        retry: [],
+        attachments: 1,
+      },
+    ],
+  ])('%s restarts enumeration once, so every conversation re-emits with its attachments and reply targets', async (_n, cursor) => {
     const { batches, calls } = run(
       { urls: { [initialDeltaUrl('INBOX-ID')]: { value: [], '@odata.deltaLink': `${G}/inbox-d2` } } },
       { folderRoots: INBOX_ROOT },
@@ -148,7 +159,7 @@ describe('pull over the tracked folder tree', () => {
     const bs = await batches;
     expect(calls).not.toContain(`${G}/legacy-inbox`);
     expect(calls.some((u) => u.includes('/messages/delta?$select'))).toBe(true);
-    expect(last(bs).cursor).toMatchObject({ v: 2, attachments: 1, phase: 'live' });
+    expect(last(bs).cursor).toMatchObject({ v: 2, rescan: 2, phase: 'live' });
   });
 });
 

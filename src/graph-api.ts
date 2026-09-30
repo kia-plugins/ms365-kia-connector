@@ -98,7 +98,10 @@ export function accumulate(page: GraphDeltaPage<Ms365DeltaMessage>, into: Set<st
 const CONV_SELECT =
   'id,subject,from,toRecipients,ccRecipients,bccRecipients,' +
   'receivedDateTime,internetMessageHeaders,body,bodyPreview,' +
-  'hasAttachments,parentFolderId,internetMessageId,conversationId';
+  'hasAttachments,parentFolderId,internetMessageId,conversationId,' +
+  // Reply targets (reply-target.ts): drafts never choose a recipient, and
+  // Reply-To wins over From.
+  'replyTo,isDraft';
 
 /**
  * Fetches every message in one conversation, oldest first. No `$orderby`:

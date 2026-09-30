@@ -39,10 +39,12 @@ import type {
   HostFor,
   Session,
   Source,
+  SourceDescriptor,
 } from '@kiagent/connector-sdk';
 import { GraphClient, statusOf, type GraphClientDeps } from './graph-client';
 import { downloadAttachment, GRAPH_BASE } from './graph-api';
 import {
+  RESCAN,
   rescope,
   type LegacyMs365Cursor,
   type Ms365Cursor,
@@ -73,8 +75,11 @@ import type { CalendarItem, GraphCalendar } from './calendar/types';
  * — see `connect` below) and the platform's `microsoft` OAuth provider owns
  * refresh-token issuance/rotation on its own, outside any scope this source
  * requests. `Calendars.Read` since 3.0.0: the calendar half (src/calendar).
+ * `Mail.Send` backs the outbound Sender (sender.ts); accounts connected
+ * before it get a "reconnect to grant send permission" on their first send
+ * and keep syncing meanwhile.
  */
-export const SCOPES = ['Mail.Read', 'Calendars.Read', 'User.Read'];
+export const SCOPES = ['Mail.Read', 'Mail.Send', 'Calendars.Read', 'User.Read'];
 
 /** What a pull yields: mail threads, then calendar occurrences. */
 export type Ms365Item = Ms365ThreadItem | CalendarItem;
@@ -123,12 +128,14 @@ async function requireToken(session: Session): Promise<string> {
   return creds.accessToken;
 }
 
-/** The stored cursor, or null to enumerate from scratch. Any cursor written
- *  before attachment children (and immutable ids) — a v1 cursor included —
- *  restarts once so every conversation re-emits with its attachments. */
+/** The stored cursor, or null to enumerate from scratch. A cursor from
+ *  before the current `RESCAN` generation — v1, pre-attachments
+ *  (`attachments: 1`), pre-reply-targets — restarts enumeration once, so
+ *  every conversation re-emits with its attachment children and its reply
+ *  targets. */
 function loadCursor(stored: unknown): Ms365Cursor | null {
   const c = stored as Ms365Cursor | LegacyMs365Cursor | null;
-  return c !== null && 'v' in c && c.attachments === 1 ? c : null;
+  return c !== null && 'v' in c && c.rescan === RESCAN ? c : null;
 }
 
 const JUNK_SUFFIX = ' (may contain phishing)';
@@ -169,16 +176,22 @@ export function createMs365Source(
       ...clock,
     });
 
+  // `compose: 'email'`: accounts can originate mail (draft_message); the
+  // Sender sends as the signed-in mailbox. Typed locally until the SDK
+  // carries the field (kiagent-core SourceDescriptor.compose).
+  const descriptor: SourceDescriptor & { compose: 'email' } = {
+    id: 'ms365',
+    name: 'Microsoft 365',
+    documentTypes: ['email.thread', 'attachment', 'calendar.event'],
+    auth: 'oauth',
+    multiAccount: true,
+    cadence: { every: '15m' },
+    folderScope: true,
+    compose: 'email',
+  };
+
   return {
-    descriptor: {
-      id: 'ms365',
-      name: 'Microsoft 365',
-      documentTypes: ['email.thread', 'attachment', 'calendar.event'],
-      auth: 'oauth',
-      multiAccount: true,
-      cadence: { every: '15m' },
-      folderScope: true,
-    },
+    descriptor,
 
     async connect(auth: AuthChannel) {
       auth.status('Waiting for Microsoft sign-in…');
@@ -222,7 +235,7 @@ export function createMs365Source(
           folders: {},
           pending: [],
           retry: [],
-          attachments: 1,
+          rescan: RESCAN,
         },
         scope.tracked,
       );
@@ -230,12 +243,15 @@ export function createMs365Source(
       const priorCal = migrated?.calendar;
       let last: Ms365Cursor = { ...start, calendar: priorCal };
       let phase: 'backfill' | 'live' = 'live';
+      // Stamp the account's own address on every thread: reply targets
+      // never address you (reply-target.ts).
+      const selfAddress = session.account.identifier;
       for await (const b of sync(client, session, tenantKind, scope, start)) {
         // Batch cursors replace wholesale: every mail batch carries the
         // calendar half unchanged.
         last = { ...b.cursor, calendar: priorCal };
         phase = b.phase;
-        yield { ...b, cursor: last };
+        yield { ...b, items: b.items.map((i) => ({ ...i, selfAddress })), cursor: last };
       }
       // Paused or quitting: sync() stopped early, and so does the calendar.
       if (session.signal.aborted) return;

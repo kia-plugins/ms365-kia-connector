@@ -31,13 +31,18 @@ export interface Ms365Cursor {
   pending: string[];
   total?: number;
   retry: RetryEntry[];
-  /** Set once this account enumerates WITH attachment children. A cursor
-   *  without it predates attachments and restarts enumeration once
-   *  (loadCursor) — unchanged threads re-upsert, the children land. */
-  attachments?: 1;
+  /** The enumeration generation this cursor was built under. A cursor
+   *  without the current one (loadCursor) restarts enumeration once —
+   *  unchanged threads re-upsert with what the new generation adds.
+   *  1 = attachment children (2.2.0, stored as `attachments: 1`);
+   *  2 = reply targets (3.0.0). */
+  rescan?: typeof RESCAN;
   /** The calendar half (since 3.0.0); absent until the first calendar pull. */
   calendar?: CalCursor;
 }
+
+/** Current enumeration generation — bump to re-emit every conversation. */
+export const RESCAN = 2;
 
 /** v1: three phases over the two well-known folder names. */
 export type LegacyMs365Cursor =

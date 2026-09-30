@@ -107,7 +107,7 @@ describe('reconcile: calendar events (spec 2026-09-30 §6)', () => {
     const source = createMs365Source(makeHost(fetchFn), instantClock);
     const { session } = makeSession({
       config: { folderRoots: ROOTS },
-      cursor: { v: 2, attachments: 1, phase: 'live', folders: {}, pending: [], retry: [], calendar },
+      cursor: { v: 2, rescan: 2, phase: 'live', folders: {}, pending: [], retry: [], calendar },
     });
     return { calls, run: () => collect(source.reconcile!(session)) };
   }

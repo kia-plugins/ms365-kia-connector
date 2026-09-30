@@ -62,7 +62,7 @@ describe('backfill: enumerate + ingest', () => {
       items: [],
       cursor: {
         v: 2,
-        attachments: 1,
+        rescan: 2,
         phase: 'live',
         folders: {
           'INBOX-ID': { delta: 'https://graph.microsoft.com/v1.0/inbox-final' },
@@ -130,7 +130,7 @@ describe('backfill: enumerate + ingest', () => {
     expect(firstBatch.items).toEqual([]);
     expect(firstBatch.cursor).toEqual({
       v: 2,
-      attachments: 1,
+      rescan: 2,
       phase: 'enumerate',
       folders: {
         'INBOX-ID': { next: 'https://graph.microsoft.com/v1.0/inbox-p2' },
@@ -178,7 +178,7 @@ describe('backfill: enumerate + ingest', () => {
     const { session } = makeSession();
     const resumeCursor: Ms365Cursor = {
       v: 2,
-      attachments: 1,
+      rescan: 2,
       phase: 'enumerate',
       folders: {
         'INBOX-ID': { delta: 'https://graph.microsoft.com/v1.0/inbox-final' },
@@ -200,7 +200,7 @@ describe('backfill: enumerate + ingest', () => {
     const { session } = makeSession();
     const resumeCursor: Ms365Cursor = {
       v: 2,
-      attachments: 1,
+      rescan: 2,
       phase: 'ingest',
       folders: {
         'INBOX-ID': { delta: 'https://graph.microsoft.com/v1.0/inbox-final' },
@@ -217,7 +217,7 @@ describe('backfill: enumerate + ingest', () => {
     const last = batches[batches.length - 1];
     expect(last.cursor).toEqual({
       v: 2,
-      attachments: 1,
+      rescan: 2,
       phase: 'live',
       folders: {
         'INBOX-ID': { delta: 'https://graph.microsoft.com/v1.0/inbox-final' },
@@ -248,7 +248,7 @@ describe('backfill: enumerate + ingest', () => {
     const { session } = makeSession();
     const resumeCursor: Ms365Cursor = {
       v: 2,
-      attachments: 1,
+      rescan: 2,
       phase: 'ingest',
       folders: { 'INBOX-ID': { delta: 'x' }, 'SENT-ID': { delta: 'y' } },
       pending: ['BAD', 'GOOD'],
@@ -283,7 +283,7 @@ describe('backfill: enumerate + ingest', () => {
     const { session } = makeSession();
     const resumeCursor: Ms365Cursor = {
       v: 2,
-      attachments: 1,
+      rescan: 2,
       phase: 'ingest',
       folders: { 'INBOX-ID': { delta: 'x' }, 'SENT-ID': { delta: 'y' } },
       pending: ['DEAD1', 'DEAD2', 'NEVER'],
