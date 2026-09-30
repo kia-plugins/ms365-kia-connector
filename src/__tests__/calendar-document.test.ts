@@ -1,5 +1,5 @@
 import { calendarToDocument, isLiveEvent } from '../calendar/document';
-import { descriptionFromMarkdown } from './fixtures/description-from-markdown';
+import { descriptionFromMarkdown } from '../testing/description-from-markdown';
 
 const cal = { id: 'CAL1', name: 'Calendar', color: '#0078d4' };
 const base = {
