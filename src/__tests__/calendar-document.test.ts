@@ -17,7 +17,7 @@ const base = {
 };
 
 test('a timed event maps to the shared metadata and markdown layout', () => {
-  const d = calendarToDocument({ calendar: cal, calendarEvent: base as never });
+  const d = calendarToDocument({ calendar: cal, tenantKind: 'work', calendarEvent: base as never });
   expect(d.type).toBe('calendar.event');
   expect(d.externalId).toBe('CAL1:EV1');
   expect(d.createdAt).toBe('2026-10-01T09:00:00.000Z');
@@ -38,7 +38,7 @@ test('a timed event maps to the shared metadata and markdown layout', () => {
 });
 
 test('an all-day event carries local dates, end exclusive', () => {
-  const d = calendarToDocument({ calendar: cal, calendarEvent: {
+  const d = calendarToDocument({ calendar: cal, tenantKind: 'work', calendarEvent: {
     ...base, isAllDay: true,
     start: { dateTime: '2026-10-01T00:00:00.0000000', timeZone: 'UTC' },
     end: { dateTime: '2026-10-03T00:00:00.0000000', timeZone: 'UTC' },
@@ -52,7 +52,7 @@ test('cancelled events are not live', () => {
 });
 
 test('an all-day event in a non-UTC calendar keeps its local dates (UTC-preferred times sit at 22:00 the day before)', () => {
-  const d = calendarToDocument({ calendar: cal, calendarEvent: {
+  const d = calendarToDocument({ calendar: cal, tenantKind: 'work', calendarEvent: {
     ...base, isAllDay: true,
     start: { dateTime: '2026-09-30T22:00:00.0000000', timeZone: 'UTC' },
     end: { dateTime: '2026-10-02T22:00:00.0000000', timeZone: 'UTC' },
@@ -61,7 +61,7 @@ test('an all-day event in a non-UTC calendar keeps its local dates (UTC-preferre
 });
 
 test('the description is the text body Graph returns (outlook.body-content-type="text")', () => {
-  const d = calendarToDocument({ calendar: cal, calendarEvent: {
+  const d = calendarToDocument({ calendar: cal, tenantKind: 'work', calendarEvent: {
     ...base, body: { contentType: 'text', content: '  Agenda:\n1. Q4\n' },
   } as never });
   expect(descriptionFromMarkdown(d.markdown!)).toBe('Agenda:\n1. Q4');

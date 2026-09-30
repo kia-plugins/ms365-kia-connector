@@ -58,6 +58,9 @@ import { sync } from './sync';
 import { EMAIL_THREAD_DOCUMENT_TYPE, toDocument, type Ms365ThreadItem } from './to-document';
 import { configuredRoots, NEW_ACCOUNT_DEFAULTS, resolveScope, wellKnownRoots } from './scope';
 import { listConversationIds } from './membership';
+import { calendarToDocument } from './calendar/document';
+import { pullCalendars } from './calendar/pull';
+import type { CalendarItem } from './calendar/types';
 
 /**
  * Graph resource scopes only — legacy's SCOPES (`openid email profile
@@ -66,9 +69,12 @@ import { listConversationIds } from './membership';
  * consume (tenant kind and identity both come from live Graph calls instead
  * — see `connect` below) and the platform's `microsoft` OAuth provider owns
  * refresh-token issuance/rotation on its own, outside any scope this source
- * requests.
+ * requests. `Calendars.Read` since 3.0.0: the calendar half (src/calendar).
  */
-export const SCOPES = ['Mail.Read', 'User.Read'];
+export const SCOPES = ['Mail.Read', 'Calendars.Read', 'User.Read'];
+
+/** What a pull yields: mail threads, then calendar occurrences. */
+export type Ms365Item = Ms365ThreadItem | CalendarItem;
 
 type TenantKind = 'work' | 'personal';
 
@@ -152,7 +158,7 @@ export function createMs365Source(
   // Test seam only: GraphClient's sleep/random are injectable so retry tests
   // never actually wait; production callers omit this.
   clock?: Pick<GraphClientDeps, 'sleep' | 'random'>,
-): Source<Ms365Cursor, Ms365ThreadItem> {
+): Source<Ms365Cursor, Ms365Item> {
   const clientFor = (session: Session): GraphClient =>
     new GraphClient({
       fetch: host.net.fetch,
@@ -164,7 +170,7 @@ export function createMs365Source(
     descriptor: {
       id: 'ms365',
       name: 'Microsoft 365',
-      documentTypes: ['email.thread', 'attachment'],
+      documentTypes: ['email.thread', 'attachment', 'calendar.event'],
       auth: 'oauth',
       multiAccount: true,
       cadence: { every: '15m' },
@@ -217,7 +223,41 @@ export function createMs365Source(
         },
         scope.tracked,
       );
-      yield* sync(client, session, tenantKindOf(session), scope, start);
+      const tenantKind = tenantKindOf(session);
+      const priorCal = migrated?.calendar;
+      let last: Ms365Cursor = { ...start, calendar: priorCal };
+      let phase: 'backfill' | 'live' = 'live';
+      for await (const b of sync(client, session, tenantKind, scope, start)) {
+        // Batch cursors replace wholesale: every mail batch carries the
+        // calendar half unchanged.
+        last = { ...b.cursor, calendar: priorCal };
+        phase = b.phase;
+        yield { ...b, cursor: last };
+      }
+      let cal;
+      try {
+        cal = await pullCalendars(
+          client,
+          session.account.config ?? {},
+          priorCal,
+          Date.now(),
+          tenantKind,
+        );
+      } catch (e) {
+        // No consent yet (an account from before 3.0.0): mail keeps syncing
+        // until the user reconnects (spec §6).
+        if (statusOf(e) === 403 && !priorCal) {
+          session.log('warn', 'ms365: calendar skipped — reconnect the account to grant Calendars.Read');
+          return;
+        }
+        throw e;
+      }
+      // Item batches carry the OLD calendar cursor; only the last commits
+      // the new one, so a crash mid-way re-lists and never skips.
+      for (let i = 0; i < cal.items.length; i += 100) {
+        yield { phase, items: cal.items.slice(i, i + 100), cursor: last };
+      }
+      yield { phase, items: [], deletions: cal.deletions, cursor: { ...last, calendar: cal.cursor } };
     },
 
     /** Spec §3.3: every conversation with a message in the tracked tree.
@@ -310,7 +350,8 @@ export function createMs365Source(
       };
     },
 
-    toDocument(item: Ms365ThreadItem): DocumentInput | DocumentInput[] | null {
+    toDocument(item: Ms365Item): DocumentInput | DocumentInput[] | null {
+      if ('calendarEvent' in item) return calendarToDocument(item);
       return toDocument(item);
     },
 

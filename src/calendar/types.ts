@@ -19,5 +19,10 @@ export interface GraphEvent {
   originalStartTimeZone?: string;
 }
 export interface CalMeta { id: string; name: string; color: string | null }
-export interface CalendarItem { calendar: CalMeta; calendarEvent: GraphEvent }
+export interface CalendarItem {
+  calendar: CalMeta;
+  calendarEvent: GraphEvent;
+  /** Picks the Outlook web host for the link, as mail's items do. */
+  tenantKind: 'work' | 'personal';
+}
 export interface GraphCalendar { id: string; name: string; hexColor?: string; isDefaultCalendar?: boolean; canEdit?: boolean; owner?: GraphEmail }

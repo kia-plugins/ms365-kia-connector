@@ -28,6 +28,7 @@ export function calendarRootsConfigured(config: Record<string, unknown>): boolea
 
 export async function pullCalendars(
   c: CalClient, config: Record<string, unknown>, prior: CalCursor | undefined, now: number,
+  tenantKind: 'work' | 'personal' = 'work',
 ): Promise<{ items: CalendarItem[]; deletions: ExternalRef[]; cursor: CalCursor }> {
   const since = prior?.since ?? iso(now - SINCE_DAYS * DAY);
   const windowStart = iso(Math.max(Date.parse(since), now - WINDOW_BACK_DAYS * DAY));
@@ -45,7 +46,7 @@ export async function pullCalendars(
     const events = (await listView(c, cal.id, from, to)).filter(isLiveEvent);
     const seen: Record<string, string> = {};
     for (const e of events) {
-      items.push({ calendar: cal, calendarEvent: e });
+      items.push({ calendar: cal, calendarEvent: e, tenantKind });
       const s = utcStart(e.start?.dateTime);
       if (s >= windowStart) seen[e.id] = s;
     }

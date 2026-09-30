@@ -1,4 +1,5 @@
 import { initialDeltaUrl, type FolderState } from './graph-api';
+import type { CalCursor } from './calendar/cursor';
 
 /** The two well-known folders a v1 cursor was keyed by. */
 export type MailFolder = 'inbox' | 'sentitems';
@@ -34,6 +35,8 @@ export interface Ms365Cursor {
    *  without it predates attachments and restarts enumeration once
    *  (loadCursor) — unchanged threads re-upsert, the children land. */
   attachments?: 1;
+  /** The calendar half (since 3.0.0); absent until the first calendar pull. */
+  calendar?: CalCursor;
 }
 
 /** v1: three phases over the two well-known folder names. */

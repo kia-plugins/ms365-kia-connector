@@ -60,7 +60,10 @@ export function calendarToDocument(item: CalendarItem): DocumentInput {
     type: CAL_DOC_TYPE,
     title,
     markdown: lines.join('\n'),
-    url: `https://outlook.office.com/calendar/item/${encodeURIComponent(e.id)}`,
+    url:
+      item.tenantKind === 'personal'
+        ? `https://outlook.live.com/calendar/item/${encodeURIComponent(e.id)}`
+        : `https://outlook.office.com/calendar/item/${encodeURIComponent(e.id)}`,
     createdAt: start,
     scopeRootId: cal.id,
     metadata: {

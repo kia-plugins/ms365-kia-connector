@@ -73,6 +73,13 @@ export interface GraphWorld {
    *  conversationId` (one page, or explicit pages). A folder absent here
    *  throws (fails the test loudly). */
   folderMessages?: Record<string, string[] | string[][]>;
+  /** `/me/calendars` (one page). Omitted → `{ value: [] }`, so a mail-only
+   *  world pulls no calendar. */
+  calendars?: unknown;
+  /** calendar id → its `calendarView` events (one page). */
+  calendarViews?: Record<string, unknown[]>;
+  /** Every calendar URL answers with this status instead. */
+  calendarStatus?: number;
   /** Checked first for every request; return undefined to fall through to
    *  the tables above. `count` is the per-exact-URL call number (0-based) —
    *  handy for "fails N times then succeeds" retry fixtures. */
@@ -100,6 +107,12 @@ export function graphFetch(world: GraphWorld = {}): {
     }
 
     const p = url.pathname;
+    if (p === '/v1.0/me/calendars' || p.startsWith('/v1.0/me/calendars/')) {
+      if (world.calendarStatus) return jsonRes(world.calendarStatus, { error: { code: 'x' } });
+      const view = /^\/v1\.0\/me\/calendars\/([^/]+)\/calendarView$/.exec(p);
+      if (view) return jsonRes(200, { value: world.calendarViews?.[decodeURIComponent(view[1])] ?? [] });
+      return jsonRes(200, world.calendars ?? { value: [] });
+    }
     if (p === '/v1.0/me' && url.searchParams.get('$select') === 'mail,userPrincipalName') {
       return jsonRes(200, world.about ?? { mail: 'user@example.com' });
     }
