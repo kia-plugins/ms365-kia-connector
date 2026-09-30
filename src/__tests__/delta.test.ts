@@ -10,7 +10,8 @@ import { EMAIL_THREAD_DOCUMENT_TYPE } from '../to-document';
 import type { Batch } from '@kiagent/connector-sdk';
 import type { Ms365Cursor } from '../cursor';
 import type { Ms365ThreadItem } from '../to-document';
-import { collect, graphFetch, graphMsg, instantClock, makeHost, makeSession } from '../testing/harness';
+import { collect,
+  collectMail, graphFetch, graphMsg, instantClock, makeHost, makeSession } from '../testing/harness';
 
 type B = Batch<Ms365Cursor, Ms365ThreadItem>;
 
@@ -46,7 +47,7 @@ describe('delta', () => {
     });
     const { session } = makeSession();
 
-    const batches = (await collect(
+    const batches = (await collectMail(
       source.pull(session, liveCursor(
         'https://graph.microsoft.com/v1.0/inbox-start',
         'https://graph.microsoft.com/v1.0/sent-start',
@@ -83,7 +84,7 @@ describe('delta', () => {
       },
     });
     const { session } = makeSession();
-    const batches = (await collect(
+    const batches = (await collectMail(
       source.pull(session, liveCursor(
         'https://graph.microsoft.com/v1.0/inbox-start',
         'https://graph.microsoft.com/v1.0/sent-start',
@@ -139,7 +140,7 @@ describe('delta', () => {
     });
     const { session } = makeSession();
 
-    const batches = (await collect(
+    const batches = (await collectMail(
       source.pull(session, liveCursor(
         'https://graph.microsoft.com/v1.0/me/mailFolders/INBOX-ID/messages/delta?$deltatoken=EXPIRED',
         'https://graph.microsoft.com/v1.0/sent-ok',
@@ -167,7 +168,7 @@ describe('delta', () => {
       conversations: { DELETED: [] },
     });
     const { session } = makeSession();
-    const batches = (await collect(
+    const batches = (await collectMail(
       source.pull(session, liveCursor(
         'https://graph.microsoft.com/v1.0/inbox-start',
         'https://graph.microsoft.com/v1.0/sent-start',
@@ -201,7 +202,7 @@ describe('delta', () => {
         'SENT-ID': { delta: 'https://graph.microsoft.com/v1.0/sent-start' },
       },
     };
-    const batches = (await collect(source.pull(session, cursor))) as B[];
+    const batches = (await collectMail(source.pull(session, cursor))) as B[];
     expect(batches.every((b) => b.phase === 'live')).toBe(true);
     expect(batches.flatMap((b) => b.items.map((i) => i.conversationId))).toEqual(['CN']);
     expect(batches[batches.length - 1].cursor).toEqual(

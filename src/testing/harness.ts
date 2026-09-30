@@ -267,6 +267,19 @@ export async function collect<T>(iter: AsyncIterable<T>): Promise<T[]> {
   return out;
 }
 
+/** The mail batches of a pull: every pull ends with the calendar half's
+ *  commit batch (no items, the new `cursor.calendar`), which the mail
+ *  suites leave out. */
+export async function collectMail<T extends { items: unknown[]; cursor: { calendar?: unknown } }>(
+  iter: AsyncIterable<T>,
+): Promise<T[]> {
+  const out = await collect(iter);
+  const last = out[out.length - 1];
+  return last && last.items.length === 0 && last.cursor.calendar !== undefined
+    ? out.slice(0, -1)
+    : out;
+}
+
 /** Builds a raw Graph message fixture with sensible defaults, matching the
  *  legacy nock test bodies' shape. */
 export function graphMsg(over: Partial<GraphMessage> = {}): GraphMessage {

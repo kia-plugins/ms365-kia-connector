@@ -10,7 +10,8 @@ import { initialDeltaUrl } from '../graph-api';
 import type { Batch } from '@kiagent/connector-sdk';
 import type { Ms365Cursor } from '../cursor';
 import type { Ms365ThreadItem } from '../to-document';
-import { collect, graphFetch, graphMsg, instantClock, makeHost, makeSession } from '../testing/harness';
+import { collect,
+  collectMail, graphFetch, graphMsg, instantClock, makeHost, makeSession } from '../testing/harness';
 
 type B = Batch<Ms365Cursor, Ms365ThreadItem>;
 
@@ -55,7 +56,7 @@ describe('backfill: enumerate + ingest', () => {
     });
     const { session } = makeSession({ config: { tenantKind: 'personal' } });
 
-    const batches = (await collect(source.pull(session, null))) as B[];
+    const batches = (await collectMail(source.pull(session, null))) as B[];
 
     expect(batches[batches.length - 1]).toEqual({
       phase: 'live',
@@ -150,7 +151,7 @@ describe('backfill: enumerate + ingest', () => {
     // --- Second run: fresh source/session, resumed from the captured cursor ---
     const { source: secondRun, calls: secondCalls } = makeSource(world);
     const { session: secondSession } = makeSession({ config: { tenantKind: 'personal' } });
-    const batches = (await collect(
+    const batches = (await collectMail(
       secondRun.pull(secondSession, firstBatch.cursor),
     )) as B[];
 
@@ -188,7 +189,7 @@ describe('backfill: enumerate + ingest', () => {
       retry: [],
     };
 
-    const batches = (await collect(source.pull(session, resumeCursor))) as B[];
+    const batches = (await collectMail(source.pull(session, resumeCursor))) as B[];
     const allIds = batches.flatMap((b) => b.items.map((i) => i.conversationId));
     expect(allIds.sort()).toEqual(['C0', 'C9']);
   });
@@ -211,7 +212,7 @@ describe('backfill: enumerate + ingest', () => {
       retry: [],
     };
 
-    const batches = (await collect(source.pull(session, resumeCursor))) as B[];
+    const batches = (await collectMail(source.pull(session, resumeCursor))) as B[];
     expect(batches.some((b) => b.items.some((i) => i.conversationId === 'C1'))).toBe(true);
     expect(calls.some((u) => u.includes('/messages/delta'))).toBe(false); // no re-enumeration
     const last = batches[batches.length - 1];
@@ -256,7 +257,7 @@ describe('backfill: enumerate + ingest', () => {
       retry: [],
     };
 
-    const batches = (await collect(source.pull(session, resumeCursor))) as B[];
+    const batches = (await collectMail(source.pull(session, resumeCursor))) as B[];
     const ids = batches.flatMap((b) => b.items.map((i) => i.conversationId));
     expect(ids).toEqual(['GOOD']);
     // The failure is kept for the next pull, not logged and lost.
@@ -291,7 +292,7 @@ describe('backfill: enumerate + ingest', () => {
       retry: [],
     };
 
-    await expect(collect(source.pull(session, resumeCursor))).rejects.toThrow(/401/);
+    await expect(collectMail(source.pull(session, resumeCursor))).rejects.toThrow(/401/);
     // 'NEVER' sits in the batch AFTER the one whose auth failure propagated
     // (INGEST_CONCURRENCY=2) — it must never have been fetched.
     expect(neverCalled).toBe(false);
