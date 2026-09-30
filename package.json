@@ -1,8 +1,8 @@
 {
   "name": "ms365-kia-connector",
-  "version": "2.2.0",
+  "version": "3.0.0",
   "private": true,
-  "description": "Microsoft 365 (Outlook mail) connector for KIAgent (new extension platform)",
+  "description": "Microsoft 365 (Outlook mail + calendar) connector for KIAgent (new extension platform)",
   "files": [
     "manifest.json",
     "dist",

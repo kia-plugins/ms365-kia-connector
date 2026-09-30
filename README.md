@@ -1,8 +1,9 @@
 # Microsoft 365 connector for KIAgent
 
-Indexes your Outlook mail (Microsoft 365 / Outlook.com) into your local
-KIAgent digital memory via the Microsoft Graph API: each conversation becomes
-one searchable email thread document, kept in sync automatically.
+Indexes your Outlook mail and calendars (Microsoft 365 / Outlook.com) into
+your local KIAgent digital memory via the Microsoft Graph API: each
+conversation becomes one searchable email thread document and each calendar
+occurrence one `calendar.event` document, kept in sync automatically.
 
 ## Install
 
@@ -16,7 +17,7 @@ one grant this connector needs before it activates:
 
 1. Add a Microsoft 365 account. A Microsoft sign-in window opens — the OAuth
    flow (and the app registration behind it) is owned entirely by the
-   platform. The connector requests only `Mail.Read` and `User.Read`, and
+   platform. The connector requests only `Mail.Read`, `Calendars.Read` and `User.Read`, and
    never sees your Microsoft password; tokens live in KIAgent's encrypted
    vault and are refreshed by the platform. This extension ships **no**
    Microsoft client credentials of its own.
@@ -60,6 +61,22 @@ Deleted Items, Junk Email, and any folder you created.
   indexed until you first save a selection. The card shows "Default
   folders — Manage to change" until then.
 
+## Calendar
+
+- Events from the calendars you pick sync with your mail and show in the
+  app's **Calendar** beside any Google calendar (Settings → Calendar shows
+  or hides that page; syncing is this account's business).
+- Scope: `Calendars.Read` (read-only). **Accounts connected before 3.0.0**
+  keep syncing mail only until you open the account's **···** menu →
+  **Reconnect** to add your calendar.
+- The **Tracked folders** picker has a **Calendars** tab: your default
+  calendar and the ones you own start ticked. Unticking a calendar removes
+  its events from the index; unticking every calendar turns the calendar
+  off for this account.
+- The first sync reaches one year back and about 13 months ahead. After
+  that, events older than 35 days are kept: deleting one in Outlook does
+  not remove it.
+
 ## What does NOT get indexed (and why)
 
 - **Attachments.** The legacy (v1) connector's Graph queries never actually
@@ -82,7 +99,8 @@ Deleted Items, Junk Email, and any folder you created.
 
 ## Privacy
 
-- Read-only Mail scope; nothing is ever written to your mailbox.
+- Read-only Mail and Calendar scopes; nothing is ever written to your mailbox
+  or calendar.
 - All content stays on your machine.
 - This extension ships no Microsoft OAuth client credentials and stores no
   tokens itself — the platform's Microsoft OAuth provider owns the whole
