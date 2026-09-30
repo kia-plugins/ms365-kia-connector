@@ -24,7 +24,7 @@ test('a timed event maps to the shared metadata and markdown layout', () => {
   expect(d.scopeRootId).toBe('CAL1');
   expect(d.metadata).toMatchObject({
     calendarId: 'CAL1', calendarName: 'Calendar', calendarColor: '#0078d4',
-    eventId: 'EV1', iCalUID: 'UID1', occurrenceKey: 'UID1',
+    eventId: 'EV1', iCalUID: 'UID1', occurrenceKey: 'UID1|2026-10-01T09:00:00.000Z',
     start: '2026-10-01T09:00:00.000Z', end: '2026-10-01T10:00:00.000Z', allDay: false,
     organizer: 'boss@x.com', selfResponse: 'accepted',
     attendees: [{ email: 'me@x.com', name: 'Me', response: 'accepted' }],
@@ -65,4 +65,11 @@ test('the description is the text body Graph returns (outlook.body-content-type=
     ...base, body: { contentType: 'text', content: '  Agenda:\n1. Q4\n' },
   } as never });
   expect(descriptionFromMarkdown(d.markdown!)).toBe('Agenda:\n1. Q4');
+});
+
+test('an occurrence of a series keys by series|start, as Google does, so briefs find earlier meetings of the series', () => {
+  const d = calendarToDocument({ calendar: cal, tenantKind: 'work', calendarEvent: {
+    ...base, type: 'occurrence', seriesMasterId: 'MASTER', iCalUId: 'PER-OCC',
+  } as never });
+  expect(d.metadata).toMatchObject({ occurrenceKey: 'MASTER|2026-10-01T09:00:00.000Z' });
 });

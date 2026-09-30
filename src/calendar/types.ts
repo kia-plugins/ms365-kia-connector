@@ -3,6 +3,8 @@ export interface GraphEmail { address?: string; name?: string }
 export interface GraphEvent {
   id: string;
   iCalUId?: string;
+  /** Set on an occurrence or exception of a recurring series. */
+  seriesMasterId?: string | null;
   subject?: string | null;
   type?: 'singleInstance' | 'occurrence' | 'exception' | 'seriesMaster';
   start?: GraphDateTime;

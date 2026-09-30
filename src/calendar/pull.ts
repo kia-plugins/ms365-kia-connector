@@ -19,7 +19,13 @@ export function selectedCalendars(config: Record<string, unknown>, all: GraphCal
     const ids = new Set(roots.map((r) => (r as { id: string }).id));
     return all.filter((c) => ids.has(c.id)).map(meta);
   }
-  return all.filter((c) => c.isDefaultCalendar || c.canEdit).map(meta);
+  // Owned = same owner as the default calendar; a colleague's calendar
+  // shared with edit rights stays an explicit choice.
+  const fold = (a?: string) => (a ?? '').trim().toLowerCase();
+  const self = fold(all.find((c) => c.isDefaultCalendar)?.owner?.address);
+  const owned = (c: GraphCalendar) =>
+    c.canEdit === true && (!self || !c.owner?.address || fold(c.owner.address) === self);
+  return all.filter((c) => c.isDefaultCalendar || owned(c)).map(meta);
 }
 
 export function calendarRootsConfigured(config: Record<string, unknown>): boolean {

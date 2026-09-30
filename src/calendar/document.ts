@@ -69,8 +69,10 @@ export function calendarToDocument(item: CalendarItem): DocumentInput {
     metadata: {
       calendarId: cal.id, calendarName: cal.name, calendarColor: cal.color,
       eventId: e.id, iCalUID: e.iCalUId ?? null,
-      // Graph's iCalUId is already per occurrence (spec §2).
-      occurrenceKey: e.iCalUId ?? e.id,
+      // `series|start`, the Google shape: the brief finds earlier meetings of
+      // a series by the prefix. Graph's iCalUId is per occurrence, so a
+      // series is keyed by its master id.
+      occurrenceKey: `${e.seriesMasterId || e.iCalUId || e.id}|${start}`,
       start, end, allDay,
       ...(allDay ? { startDate: datePart(e.start), endDate: datePart(e.end) } : {}),
       timeZone: e.originalStartTimeZone ?? 'UTC',

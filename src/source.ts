@@ -237,6 +237,8 @@ export function createMs365Source(
         phase = b.phase;
         yield { ...b, cursor: last };
       }
+      // Paused or quitting: sync() stopped early, and so does the calendar.
+      if (session.signal.aborted) return;
       let cal;
       try {
         cal = await pullCalendars(
@@ -255,8 +257,9 @@ export function createMs365Source(
         }
         throw e;
       }
-      // Item batches carry the OLD calendar cursor; only the last commits
-      // the new one, so a crash mid-way re-lists and never skips.
+      // Item batches carry the OLD calendar cursor and the last batch
+      // commits the new one with the deletions; a calendar with no events
+      // still needs that one batch to fix `since`.
       for (let i = 0; i < cal.items.length; i += 100) {
         yield { phase, items: cal.items.slice(i, i + 100), cursor: last };
       }

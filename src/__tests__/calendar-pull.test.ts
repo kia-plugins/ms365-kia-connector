@@ -84,3 +84,19 @@ test('calendarView asks for UTC times and text bodies', async () => {
   await pullCalendars(c, {}, undefined, NOW);
   expect(seen[0]).toEqual({ prefer: 'outlook.timezone="UTC", outlook.body-content-type="text"' });
 });
+
+test('owned means the default calendar owner: a colleague calendar shared with edit rights is not auto-selected', async () => {
+  const me = { address: 'me@x.com', name: 'Me' };
+  const c = {
+    request: async <T,>(url: string): Promise<T> =>
+      (url.includes('/me/calendars?')
+        ? { value: [
+            { id: 'D', name: 'Calendar', isDefaultCalendar: true, canEdit: true, owner: me },
+            { id: 'MINE', name: 'Side project', canEdit: true, owner: { address: 'ME@x.com' } },
+            { id: 'BOSS', name: 'Boss', canEdit: true, owner: { address: 'boss@x.com' } },
+          ] }
+        : { value: [ev('x', '2026-09-30T09:00:00Z')] }) as T,
+  };
+  const r = await pullCalendars(c, {}, undefined, NOW);
+  expect([...new Set(r.items.map((i) => i.calendar.id))]).toEqual(['D', 'MINE']);
+});

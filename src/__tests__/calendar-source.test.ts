@@ -99,3 +99,13 @@ test('a personal account links the event on outlook.live.com (mail does the same
   const cal = seen.flatMap((b) => b.items).find((i) => 'calendarEvent' in i)!;
   expect((source.toDocument(cal) as { url: string }).url).toBe('https://outlook.live.com/calendar/item/EV1');
 });
+
+test('an aborted pull stops before the calendar half (pause, quit)', async () => {
+  const { fetchFn, calls } = graphFetch({ ...mail, calendars, calendarViews: { CAL: [event] } });
+  const source = createMs365Source(makeHost(fetchFn), instantClock);
+  const ac = new AbortController();
+  const { session } = makeSession({ config: { tenantKind: 'work', folderRoots: INBOX_ROOT }, signal: ac.signal });
+  ac.abort();
+  for await (const _ of source.pull(session, live)) { /* drain */ }
+  expect(calls.some((u) => u.includes('/me/calendars'))).toBe(false);
+});
