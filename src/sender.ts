@@ -22,60 +22,53 @@ import type {
   SendResult,
   Sender,
   SenderContext,
-} from "@kiagent/connector-sdk";
-import { GRAPH_BASE } from "./graph-api";
+} from '@kiagent/connector-sdk';
+import { GRAPH_BASE } from './graph-api';
 import {
   GraphApiError,
   GraphClient,
   isAuthError,
   type GraphClientDeps,
-} from "./graph-client";
+} from './graph-client';
 
 /** Well inside kiagent-core's 60 s sender timeout, which does not cancel
  *  this call — nothing may still be in flight once it has given up. */
 export const SEND_DEADLINE_MS = 40_000;
 
 const OWNER_CHANNEL_HEADERS = [
-  { name: "X-Kia-Channel", value: "owner" },
-  { name: "X-Auto-Response-Suppress", value: "OOF, AutoReply" },
+  { name: 'X-Kia-Channel', value: 'owner' },
+  { name: 'X-Auto-Response-Suppress', value: 'OOF, AutoReply' },
 ];
 
 const recipients = (addrs: string[] | undefined) =>
   (addrs ?? []).map((address) => ({ emailAddress: { address } }));
 
 export function createMs365Sender(
-  host: HostFor<"net">,
-  clock?: Pick<GraphClientDeps, "sleep" | "random">,
+  host: HostFor<'net'>,
+  clock?: Pick<GraphClientDeps, 'sleep' | 'random'>,
 ): Sender {
   return {
     async send(intent: SendIntent, ctx?: SenderContext): Promise<SendResult> {
       // Refreshed host-side at send time — this process has no vault.
       const token = ctx?.credentials?.accessToken;
       if (!token)
-        throw new Error(
-          "no Microsoft 365 credentials — reconnect the account in Settings",
-        );
+        throw new Error('no Microsoft 365 credentials — reconnect the account in Settings');
       const to = intent.to ?? [];
-      if (to.length === 0)
-        throw new Error("not sent: this draft has no recipient");
-      const body = { contentType: "Text", content: intent.bodyMarkdown };
+      if (to.length === 0) throw new Error('not sent: this draft has no recipient');
+      const body = { contentType: 'Text', content: intent.bodyMarkdown };
       // Email Kia: answers to yourself whose replies go back to you+kia@,
       // marked so the corpus skips them and autoresponders stay quiet.
       const extra = {
         ...(intent.replyTo ? { replyTo: recipients([intent.replyTo]) } : {}),
-        ...(intent.ownerChannel
-          ? { internetMessageHeaders: OWNER_CHANNEL_HEADERS }
-          : {}),
+        ...(intent.ownerChannel ? { internetMessageHeaders: OWNER_CHANNEL_HEADERS } : {}),
       };
 
       let url: string;
       let payload: unknown;
-      if (intent.kind === "reply") {
-        const messageId = (
-          intent.outboundRef as { messageId?: unknown } | undefined
-        )?.messageId;
-        if (typeof messageId !== "string" || messageId.length === 0)
-          throw new Error("not sent: this draft has no message to reply to");
+      if (intent.kind === 'reply') {
+        const messageId = (intent.outboundRef as { messageId?: unknown } | undefined)?.messageId;
+        if (typeof messageId !== 'string' || messageId.length === 0)
+          throw new Error('not sent: this draft has no message to reply to');
         url = `${GRAPH_BASE}/me/messages/${encodeURIComponent(messageId)}/reply`;
         payload = {
           message: {
@@ -89,7 +82,7 @@ export function createMs365Sender(
         url = `${GRAPH_BASE}/me/sendMail`;
         payload = {
           message: {
-            subject: intent.subject ?? "",
+            subject: intent.subject ?? '',
             body,
             toRecipients: recipients(to),
             ccRecipients: recipients(intent.cc),
@@ -118,30 +111,18 @@ export function createMs365Sender(
  *  Graph REFUSED the request become a "nothing was sent" marker. */
 function sendError(e: unknown): Error {
   if (isAuthError(e))
+    return new Error('your Microsoft 365 sign-in no longer works — reconnect the account in Settings');
+  if (!(e instanceof GraphApiError)) return e instanceof Error ? e : new Error(String(e));
+  const code = e.code ?? '';
+  if (e.status === 403 && /AccessDenied|Authorization_RequestDenied/i.test(code))
     return new Error(
-      "your Microsoft 365 sign-in no longer works — reconnect the account in Settings",
-    );
-  if (!(e instanceof GraphApiError))
-    return e instanceof Error ? e : new Error(String(e));
-  const code = e.code ?? "";
-  if (
-    e.status === 403 &&
-    /AccessDenied|Authorization_RequestDenied/i.test(code)
-  )
-    return new Error(
-      "this Microsoft 365 account was connected before sending existed — reconnect it in Settings to grant send permission",
+      'this Microsoft 365 account was connected before sending existed — reconnect it in Settings to grant send permission',
     );
   if (e.status === 404 && /ErrorItemNotFound/.test(code))
-    return new Error(
-      "not sent: the original message no longer exists in the mailbox",
-    );
+    return new Error('not sent: the original message no longer exists in the mailbox');
   if (e.status === 429)
-    return new Error(
-      "rate-limited: Microsoft 365 is throttling sends — nothing was sent",
-    );
+    return new Error('rate-limited: Microsoft 365 is throttling sends — nothing was sent');
   if (e.status === 400)
-    return new Error(
-      `not sent: Microsoft 365 rejected the message${code ? ` (${code})` : ""}`,
-    );
+    return new Error(`not sent: Microsoft 365 rejected the message${code ? ` (${code})` : ''}`);
   return e;
 }

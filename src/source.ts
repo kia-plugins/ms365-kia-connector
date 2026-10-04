@@ -40,15 +40,15 @@ import type {
   Session,
   Source,
   SourceDescriptor,
-} from "@kiagent/connector-sdk";
-import { GraphClient, statusOf, type GraphClientDeps } from "./graph-client";
-import { downloadAttachment, GRAPH_BASE } from "./graph-api";
+} from '@kiagent/connector-sdk';
+import { GraphClient, statusOf, type GraphClientDeps } from './graph-client';
+import { downloadAttachment, GRAPH_BASE } from './graph-api';
 import {
   RESCAN,
   rescope,
   type LegacyMs365Cursor,
   type Ms365Cursor,
-} from "./cursor";
+} from './cursor';
 import {
   ancestorsOf,
   discoverTracked,
@@ -56,25 +56,16 @@ import {
   listTopFolders,
   resolveWellKnown,
   type MailFolderNode,
-} from "./folders";
-import { sync } from "./sync";
-import {
-  EMAIL_THREAD_DOCUMENT_TYPE,
-  toDocument,
-  type Ms365ThreadItem,
-} from "./to-document";
-import {
-  configuredRoots,
-  NEW_ACCOUNT_DEFAULTS,
-  resolveScope,
-  wellKnownRoots,
-} from "./scope";
-import { listConversationIds } from "./membership";
-import { calendarToDocument } from "./calendar/document";
-import { listCalendars } from "./calendar/graph";
-import { calendarRefs } from "./calendar/reconcile";
-import { pullCalendars, selectedCalendars } from "./calendar/pull";
-import type { CalendarItem, GraphCalendar } from "./calendar/types";
+} from './folders';
+import { sync } from './sync';
+import { EMAIL_THREAD_DOCUMENT_TYPE, toDocument, type Ms365ThreadItem } from './to-document';
+import { configuredRoots, NEW_ACCOUNT_DEFAULTS, resolveScope, wellKnownRoots } from './scope';
+import { listConversationIds } from './membership';
+import { calendarToDocument } from './calendar/document';
+import { listCalendars } from './calendar/graph';
+import { calendarRefs } from './calendar/reconcile';
+import { pullCalendars, selectedCalendars } from './calendar/pull';
+import type { CalendarItem, GraphCalendar } from './calendar/types';
 
 /**
  * Graph resource scopes only — legacy's SCOPES (`openid email profile
@@ -88,16 +79,16 @@ import type { CalendarItem, GraphCalendar } from "./calendar/types";
  * before it get a "reconnect to grant send permission" on their first send
  * and keep syncing meanwhile.
  */
-export const SCOPES = ["Mail.Read", "Mail.Send", "Calendars.Read", "User.Read"];
+export const SCOPES = ['Mail.Read', 'Mail.Send', 'Calendars.Read', 'User.Read'];
 
 /** What a pull yields: mail threads, then calendar occurrences. */
 export type Ms365Item = Ms365ThreadItem | CalendarItem;
 
-type TenantKind = "work" | "personal";
+type TenantKind = 'work' | 'personal';
 
 function tenantKindOf(session: Session): TenantKind {
   const cfg = session.account.config as { tenantKind?: unknown };
-  return cfg.tenantKind === "work" ? "work" : "personal";
+  return cfg.tenantKind === 'work' ? 'work' : 'personal';
 }
 
 /**
@@ -118,19 +109,12 @@ function tenantKindOf(session: Session): TenantKind {
  */
 async function probeTenantKind(client: GraphClient): Promise<TenantKind> {
   try {
-    const r = await client.request<{ value?: unknown[] }>(
-      `${GRAPH_BASE}/organization`,
-    );
-    return Array.isArray(r.value) && r.value.length > 0 ? "work" : "personal";
+    const r = await client.request<{ value?: unknown[] }>(`${GRAPH_BASE}/organization`);
+    return Array.isArray(r.value) && r.value.length > 0 ? 'work' : 'personal';
   } catch (e) {
     const status = statusOf(e);
-    if (
-      status !== undefined &&
-      status >= 400 &&
-      status < 500 &&
-      status !== 429
-    ) {
-      return "personal";
+    if (status !== undefined && status >= 400 && status < 500 && status !== 429) {
+      return 'personal';
     }
     throw e;
   }
@@ -139,7 +123,7 @@ async function probeTenantKind(client: GraphClient): Promise<TenantKind> {
 async function requireToken(session: Session): Promise<string> {
   const creds = await session.credentials();
   if (!creds?.accessToken) {
-    throw new Error("ms365: no credentials available — reconnect the account");
+    throw new Error('ms365: no credentials available — reconnect the account');
   }
   return creds.accessToken;
 }
@@ -151,12 +135,11 @@ async function requireToken(session: Session): Promise<string> {
  *  targets. */
 function loadCursor(stored: unknown): Ms365Cursor | null {
   const c = stored as Ms365Cursor | LegacyMs365Cursor | null;
-  return c !== null && "v" in c && c.rescan === RESCAN ? c : null;
+  return c !== null && 'v' in c && c.rescan === RESCAN ? c : null;
 }
 
-const JUNK_SUFFIX = " (may contain phishing)";
-const MANAGE_NOTE =
-  "Mail outside the selected folders will be removed from the index";
+const JUNK_SUFFIX = ' (may contain phishing)';
+const MANAGE_NOTE = 'Mail outside the selected folders will be removed from the index';
 
 /** The scope Save's archive set (spec §3.4): conversations with a message in
  *  a folder that leaves the tracked set and none in the new tracked set.
@@ -177,17 +160,14 @@ async function leavingRefs(
     for (const id of ids) leaving.delete(id);
     if (leaving.size === 0) break;
   }
-  return [...leaving].map((externalId) => ({
-    externalId,
-    type: EMAIL_THREAD_DOCUMENT_TYPE,
-  }));
+  return [...leaving].map((externalId) => ({ externalId, type: EMAIL_THREAD_DOCUMENT_TYPE }));
 }
 
 export function createMs365Source(
-  host: HostFor<"net">,
+  host: HostFor<'net'>,
   // Test seam only: GraphClient's sleep/random are injectable so retry tests
   // never actually wait; production callers omit this.
-  clock?: Pick<GraphClientDeps, "sleep" | "random">,
+  clock?: Pick<GraphClientDeps, 'sleep' | 'random'>,
 ): Source<Ms365Cursor, Ms365Item> {
   const clientFor = (session: Session): GraphClient =>
     new GraphClient({
@@ -199,25 +179,25 @@ export function createMs365Source(
   // `compose: 'email'`: accounts can originate mail (draft_message); the
   // Sender sends as the signed-in mailbox.
   const descriptor: SourceDescriptor = {
-    id: "ms365",
-    name: "Microsoft 365",
-    documentTypes: ["email.thread", "attachment", "calendar.event"],
-    auth: "oauth",
+    id: 'ms365',
+    name: 'Microsoft 365',
+    documentTypes: ['email.thread', 'attachment', 'calendar.event'],
+    auth: 'oauth',
     multiAccount: true,
-    cadence: { every: "15m" },
+    cadence: { every: '15m' },
     folderScope: true,
-    compose: "email",
+    compose: 'email',
   };
 
   return {
     descriptor,
 
     async connect(auth: AuthChannel) {
-      auth.status("Waiting for Microsoft sign-in…");
+      auth.status('Waiting for Microsoft sign-in…');
       const creds: Credentials = await auth.oauth(SCOPES);
       const accessToken = creds.accessToken;
       if (!accessToken) {
-        throw new Error("ms365: Microsoft sign-in returned no access token");
+        throw new Error('ms365: Microsoft sign-in returned no access token');
       }
       const client = new GraphClient({
         fetch: host.net.fetch,
@@ -225,45 +205,34 @@ export function createMs365Source(
         ...clock,
       });
 
-      auth.status("Fetching Microsoft 365 profile…");
-      const me = await client.request<{
-        mail?: string | null;
-        userPrincipalName?: string;
-      }>(`${GRAPH_BASE}/me?$select=mail,userPrincipalName`);
+      auth.status('Fetching Microsoft 365 profile…');
+      const me = await client.request<{ mail?: string | null; userPrincipalName?: string }>(
+        `${GRAPH_BASE}/me?$select=mail,userPrincipalName`,
+      );
       const identifier = me.mail || me.userPrincipalName;
       if (!identifier) {
-        throw new Error(
-          "ms365: /me response missing both mail and userPrincipalName",
-        );
+        throw new Error('ms365: /me response missing both mail and userPrincipalName');
       }
 
-      auth.status("Checking Microsoft 365 account type…");
+      auth.status('Checking Microsoft 365 account type…');
       const tenantKind = await probeTenantKind(client);
       const folderRoots = await wellKnownRoots(client, NEW_ACCOUNT_DEFAULTS);
 
-      return {
-        identifier,
-        // Email Kia matches the sign-in identity, which is the UPN, not mail.
-        config: {
-          tenantKind,
-          folderRoots,
-          userPrincipalName: me.userPrincipalName ?? null,
-        },
-      };
+      // Email Kia matches the sign-in identity, which may be the UPN, not mail.
+      const userPrincipalName = me.userPrincipalName ?? null;
+      return { identifier, config: { tenantKind, folderRoots, userPrincipalName } };
     },
 
     async *pull(session: Session, cursor: Ms365Cursor | null) {
       const client = clientFor(session);
-      const scope = await resolveScope(
-        client,
-        session.account.config ?? {},
-        (m) => session.log("warn", m),
+      const scope = await resolveScope(client, session.account.config ?? {}, (m) =>
+        session.log('warn', m),
       );
       const migrated = loadCursor(cursor);
       const start = rescope(
         migrated ?? {
           v: 2,
-          phase: "enumerate",
+          phase: 'enumerate',
           folders: {},
           pending: [],
           retry: [],
@@ -274,7 +243,7 @@ export function createMs365Source(
       const tenantKind = tenantKindOf(session);
       const priorCal = migrated?.calendar;
       let last: Ms365Cursor = { ...start, calendar: priorCal };
-      let phase: "backfill" | "live" = "live";
+      let phase: 'backfill' | 'live' = 'live';
       // Stamp the account's own address on every thread: reply targets
       // never address you (reply-target.ts).
       const selfAddress = session.account.identifier;
@@ -283,11 +252,7 @@ export function createMs365Source(
         // calendar half unchanged.
         last = { ...b.cursor, calendar: priorCal };
         phase = b.phase;
-        yield {
-          ...b,
-          items: b.items.map((i) => ({ ...i, selfAddress })),
-          cursor: last,
-        };
+        yield { ...b, items: b.items.map((i) => ({ ...i, selfAddress })), cursor: last };
       }
       // Paused or quitting: sync() stopped early, and so does the calendar.
       if (session.signal.aborted) return;
@@ -304,10 +269,7 @@ export function createMs365Source(
         // No consent yet (an account from before 3.0.0): mail keeps syncing
         // until the user reconnects (spec §6).
         if (statusOf(e) === 403 && !priorCal) {
-          session.log(
-            "warn",
-            "ms365: calendar skipped — reconnect the account to grant Calendars.Read",
-          );
+          session.log('warn', 'ms365: calendar skipped — reconnect the account to grant Calendars.Read');
           return;
         }
         throw e;
@@ -318,12 +280,7 @@ export function createMs365Source(
       for (let i = 0; i < cal.items.length; i += 100) {
         yield { phase, items: cal.items.slice(i, i + 100), cursor: last };
       }
-      yield {
-        phase,
-        items: [],
-        deletions: cal.deletions,
-        cursor: { ...last, calendar: cal.cursor },
-      };
+      yield { phase, items: [], deletions: cal.deletions, cursor: { ...last, calendar: cal.cursor } };
     },
 
     /** Spec §3.3: every conversation with a message in the tracked tree.
@@ -333,20 +290,17 @@ export function createMs365Source(
     async *reconcile(session: Session) {
       const config = session.account.config ?? {};
       if (configuredRoots(config) === null) {
-        throw new Error("ms365: reconcile without declared scope");
+        throw new Error('ms365: reconcile without declared scope');
       }
       const client = clientFor(session);
-      const warn = (m: string) => session.log("warn", m);
+      const warn = (m: string) => session.log('warn', m);
       const { tracked } = await resolveScope(client, config, warn);
       let requests = 0;
       for await (const ids of listConversationIds(client, tracked.keys(), {
         signal: session.signal,
         onRequest: () => (requests += 1),
       })) {
-        yield ids.map((externalId) => ({
-          externalId,
-          type: EMAIL_THREAD_DOCUMENT_TYPE,
-        }));
+        yield ids.map((externalId) => ({ externalId, type: EMAIL_THREAD_DOCUMENT_TYPE }));
       }
       // Core archives every unlisted document of the account, of any type:
       // the calendar events are listed too (spec §6).
@@ -358,7 +312,7 @@ export function createMs365Source(
       );
       if (calRefs.length) yield calRefs;
       session.log(
-        "info",
+        'info',
         `ms365 reconcile: ${tracked.size} folders listed in ${requests} requests`,
       );
     },
@@ -370,22 +324,16 @@ export function createMs365Source(
      *  from before 3.0.0 grants Calendars.Read), refused for a different
      *  Microsoft account. */
     async reauthenticate(account: Account, auth: AuthChannel) {
-      auth.status("Waiting for Microsoft sign-in…");
+      auth.status('Waiting for Microsoft sign-in…');
       const creds = await auth.oauth(SCOPES);
       const token = creds.accessToken;
-      if (!token)
-        throw new Error("ms365: Microsoft sign-in returned no access token");
-      auth.status("Verifying the Microsoft account…");
-      const client = new GraphClient({
-        fetch: host.net.fetch,
-        getToken: async () => token,
-        ...clock,
-      });
-      const me = await client.request<{
-        mail?: string | null;
-        userPrincipalName?: string;
-      }>(`${GRAPH_BASE}/me?$select=mail,userPrincipalName`);
-      const who = me.mail || me.userPrincipalName || "";
+      if (!token) throw new Error('ms365: Microsoft sign-in returned no access token');
+      auth.status('Verifying the Microsoft account…');
+      const client = new GraphClient({ fetch: host.net.fetch, getToken: async () => token, ...clock });
+      const me = await client.request<{ mail?: string | null; userPrincipalName?: string }>(
+        `${GRAPH_BASE}/me?$select=mail,userPrincipalName`,
+      );
+      const who = me.mail || me.userPrincipalName || '';
       const fold = (x: string) => x.trim().toLowerCase();
       if (fold(who) !== fold(account.identifier)) {
         throw new Error(
@@ -400,18 +348,12 @@ export function createMs365Source(
     ): Promise<FolderScopeUpdate<Ms365Cursor>> {
       const client = clientFor(session);
       const config = session.account.config ?? {};
-      const warn = (m: string) => session.log("warn", m);
+      const warn = (m: string) => session.log('warn', m);
       const prior = await resolveScope(client, config, warn);
-      const known = await resolveWellKnown(client, [
-        "junkemail",
-        "msgfolderroot",
-      ]);
+      const known = await resolveWellKnown(client, ['junkemail', 'msgfolderroot']);
       const toNode = (f: MailFolderNode): FolderNode => ({
         id: f.id,
-        name:
-          f.id === known.junkemail?.id
-            ? `${f.displayName}${JUNK_SUFFIX}`
-            : f.displayName,
+        name: f.id === known.junkemail?.id ? `${f.displayName}${JUNK_SUFFIX}` : f.displayName,
         hasChildren: f.childFolderCount > 0,
       });
       const priorIds = prior.roots.map((r) => r.id);
@@ -429,36 +371,31 @@ export function createMs365Source(
       });
       const picked = await channel.pickFolders({
         modes: [
-          { key: "mail", label: "Mail folders" },
-          { key: "calendars", label: "Calendars" },
+          { key: 'mail', label: 'Mail folders' },
+          { key: 'calendars', label: 'Calendars' },
         ],
         multiSelect: true,
-        purpose: "manage",
+        purpose: 'manage',
         note: MANAGE_NOTE,
         selected: [
           ...prior.roots.map((r) => ({
             id: r.id,
             name: r.name,
-            hasChildren: [...prior.tracked].some(
-              ([f, root]) => root === r.id && f !== r.id,
-            ),
+            hasChildren: [...prior.tracked].some(([f, root]) => root === r.id && f !== r.id),
           })),
           ...priorCals.map(calNode),
         ],
         expand: await ancestorsOf(client, priorIds, known.msgfolderroot?.id),
         roots: async (mode) =>
-          mode === "calendars"
+          mode === 'calendars'
             ? allCals.map(calNode)
             : (await listTopFolders(client)).map(toNode),
         children: async (id) =>
-          calIds.has(id)
-            ? []
-            : (await listChildFolders(client, id)).map(toNode),
+          calIds.has(id) ? [] : (await listChildFolders(client, id)).map(toNode),
       });
       const pickedCals = picked.filter((n) => calIds.has(n.id));
       const pickedMail = picked.filter((n) => !calIds.has(n.id));
-      if (pickedMail.length === 0)
-        throw new Error("ms365: no mail folders selected");
+      if (pickedMail.length === 0) throw new Error('ms365: no mail folders selected');
 
       // Retained roots in prior order, then new ones in pick order.
       const pickedIds = new Set(pickedMail.map((n) => n.id));
@@ -468,9 +405,7 @@ export function createMs365Source(
           .filter((n) => !priorIds.includes(n.id))
           .map((n) => ({
             id: n.id,
-            name: n.name.endsWith(JUNK_SUFFIX)
-              ? n.name.slice(0, -JUNK_SUFFIX.length)
-              : n.name,
+            name: n.name.endsWith(JUNK_SUFFIX) ? n.name.slice(0, -JUNK_SUFFIX.length) : n.name,
           })),
       ];
       const next = await discoverTracked(
@@ -481,9 +416,7 @@ export function createMs365Source(
       // A legacy account's first Save lists nothing: core grants the first
       // declaration a reconcile allowance, and that pass archives exactly
       // indexed − staying (spec §3.4).
-      const archiveRefs = prior.legacy
-        ? []
-        : await leavingRefs(client, prior.tracked, next);
+      const archiveRefs = prior.legacy ? [] : await leavingRefs(client, prior.tracked, next);
 
       // Calendars: an explicit list from now on ([] = calendar off), but only
       // when the tab listed any: without consent (403) or calendars, a mail
@@ -503,45 +436,34 @@ export function createMs365Source(
                 calendar: {
                   ...cursor.calendar,
                   cals: Object.fromEntries(
-                    Object.entries(cursor.calendar.cals).filter(([id]) =>
-                      keepCal.has(id),
-                    ),
+                    Object.entries(cursor.calendar.cals).filter(([id]) => keepCal.has(id)),
                   ),
                 },
               }
             : cursor,
-        archiveScopeRootIds: priorCals
-          .map((c) => c.id)
-          .filter((id) => !keepCal.has(id)),
+        archiveScopeRootIds: priorCals.map((c) => c.id).filter((id) => !keepCal.has(id)),
         reattributeScopeRoots: [],
         archiveRefs,
       };
     },
 
     toDocument(item: Ms365Item): DocumentInput | DocumentInput[] | null {
-      if ("calendarEvent" in item) return calendarToDocument(item);
+      if ('calendarEvent' in item) return calendarToDocument(item);
       return toDocument(item);
     },
 
     /** Bytes of one attachment child, re-resolved by name + size under its
      *  immutable message id (to-document.ts). `null` = gone upstream; a
      *  throw (auth, network) is transient — core defers and retries. */
-    async fetchBytes(
-      session: Session,
-      doc: Document,
-    ): Promise<Uint8Array | null> {
-      if (doc.type !== "attachment") return null;
-      const meta = doc.metadata as {
-        messageId?: unknown;
-        filename?: unknown;
-        sizeBytes?: unknown;
-      };
-      if (typeof meta.messageId !== "string") return null;
+    async fetchBytes(session: Session, doc: Document): Promise<Uint8Array | null> {
+      if (doc.type !== 'attachment') return null;
+      const meta = doc.metadata as { messageId?: unknown; filename?: unknown; sizeBytes?: unknown };
+      if (typeof meta.messageId !== 'string') return null;
       return downloadAttachment(
         clientFor(session),
         meta.messageId,
-        typeof meta.filename === "string" ? meta.filename : null,
-        typeof meta.sizeBytes === "number" ? meta.sizeBytes : null,
+        typeof meta.filename === 'string' ? meta.filename : null,
+        typeof meta.sizeBytes === 'number' ? meta.sizeBytes : null,
       );
     },
   };

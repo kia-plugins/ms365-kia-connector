@@ -6,48 +6,40 @@
  * `src/__tests__/ms365-oauth.test.ts`'s identity/tenant-kind assertions,
  * which this port re-derives via live Graph calls instead of an id_token.
  */
-import { createMs365Source, SCOPES } from "../source";
+import { createMs365Source, SCOPES } from '../source';
 import {
   DEFAULT_FOLDERS,
   graphFetch,
   instantClock,
   makeAuth,
   makeHost,
-} from "../testing/harness";
+} from '../testing/harness';
 
 /** A new account tracks Inbox, Sent Items and Archive (spec §3.1). */
 const DEFAULT_ROOTS = [
-  { id: "INBOX-ID", name: "Inbox" },
-  { id: "SENT-ID", name: "Sent Items" },
-  { id: "ARCHIVE-ID", name: "Archive" },
+  { id: 'INBOX-ID', name: 'Inbox' },
+  { id: 'SENT-ID', name: 'Sent Items' },
+  { id: 'ARCHIVE-ID', name: 'Archive' },
 ];
 
-describe("connect", () => {
-  it("persists userPrincipalName so Email Kia can match the sign-in UPN", async () => {
+describe('connect', () => {
+  it('persists userPrincipalName so Email Kia can match the sign-in UPN', async () => {
     const { fetchFn } = graphFetch({
-      about: {
-        mail: "alice@company.com",
-        userPrincipalName: "alice@tenant.onmicrosoft.com",
-      },
-      organization: { value: [{ id: "org1" }] },
+      about: { mail: 'alice@company.com', userPrincipalName: 'alice@tenant.onmicrosoft.com' },
+      organization: { value: [{ id: 'org1' }] },
     });
     const source = createMs365Source(makeHost(fetchFn), instantClock);
     const res = await source.connect(makeAuth().auth);
     expect(res).toMatchObject({
-      identifier: "alice@company.com",
-      config: expect.objectContaining({
-        userPrincipalName: "alice@tenant.onmicrosoft.com",
-      }),
+      identifier: 'alice@company.com',
+      config: expect.objectContaining({ userPrincipalName: 'alice@tenant.onmicrosoft.com' }),
     });
   });
 
-  it("oauth happy path: Graph-only scopes, statuses, identifier = mail, tenantKind = work", async () => {
+  it('oauth happy path: Graph-only scopes, statuses, identifier = mail, tenantKind = work', async () => {
     const { fetchFn, calls } = graphFetch({
-      about: {
-        mail: "ed@corp.com",
-        userPrincipalName: "ed_corp.com#EXT#@tenant.onmicrosoft.com",
-      },
-      organization: { value: [{ id: "org1" }] },
+      about: { mail: 'ed@corp.com', userPrincipalName: 'ed_corp.com#EXT#@tenant.onmicrosoft.com' },
+      organization: { value: [{ id: 'org1' }] },
     });
     const source = createMs365Source(makeHost(fetchFn), instantClock);
     const { auth, statuses, getScopes } = makeAuth();
@@ -55,60 +47,51 @@ describe("connect", () => {
     const res = await source.connect(auth);
 
     expect(getScopes()).toEqual(SCOPES);
-    expect(getScopes()).toEqual([
-      "Mail.Read",
-      "Mail.Send",
-      "Calendars.Read",
-      "User.Read",
-    ]);
+    expect(getScopes()).toEqual(['Mail.Read', 'Mail.Send', 'Calendars.Read', 'User.Read']);
     expect(statuses).toEqual([
-      "Waiting for Microsoft sign-in…",
-      "Fetching Microsoft 365 profile…",
-      "Checking Microsoft 365 account type…",
+      'Waiting for Microsoft sign-in…',
+      'Fetching Microsoft 365 profile…',
+      'Checking Microsoft 365 account type…',
     ]);
     expect(res).toEqual({
-      identifier: "ed@corp.com",
+      identifier: 'ed@corp.com',
       config: {
-        tenantKind: "work",
+        tenantKind: 'work',
         folderRoots: DEFAULT_ROOTS,
-        userPrincipalName: "ed_corp.com#EXT#@tenant.onmicrosoft.com",
+        userPrincipalName: 'ed_corp.com#EXT#@tenant.onmicrosoft.com',
       },
     });
-    expect(calls.some((u) => u.includes("/v1.0/me?"))).toBe(true);
-    expect(calls.some((u) => u.includes("/v1.0/organization"))).toBe(true);
+    expect(calls.some((u) => u.includes('/v1.0/me?'))).toBe(true);
+    expect(calls.some((u) => u.includes('/v1.0/organization'))).toBe(true);
   });
 
-  it("falls back to userPrincipalName when mail is null", async () => {
+  it('falls back to userPrincipalName when mail is null', async () => {
     const { fetchFn } = graphFetch({
-      about: { mail: null, userPrincipalName: "alice@tenant.onmicrosoft.com" },
+      about: { mail: null, userPrincipalName: 'alice@tenant.onmicrosoft.com' },
       organization: { value: [] },
     });
     const source = createMs365Source(makeHost(fetchFn), instantClock);
     const { auth } = makeAuth();
     const res = await source.connect(auth);
-    expect(res.identifier).toBe("alice@tenant.onmicrosoft.com");
+    expect(res.identifier).toBe('alice@tenant.onmicrosoft.com');
     expect(res.config).toEqual({
-      tenantKind: "personal",
+      tenantKind: 'personal',
       folderRoots: DEFAULT_ROOTS,
-      userPrincipalName: "alice@tenant.onmicrosoft.com",
+      userPrincipalName: 'alice@tenant.onmicrosoft.com',
     });
   });
 
   it.each([400, 401, 403, 404, 405])(
-    "treats a %d on /organization as a personal account, not an error",
+    'treats a %d on /organization as a personal account, not an error',
     async (status) => {
       const { fetchFn } = graphFetch({
-        about: { mail: "me@outlook.com" },
+        about: { mail: 'me@outlook.com' },
         organization: { status, body: {} },
       });
       const source = createMs365Source(makeHost(fetchFn), instantClock);
       const { auth } = makeAuth();
       const res = await source.connect(auth);
-      expect(res.config).toEqual({
-        tenantKind: "personal",
-        folderRoots: DEFAULT_ROOTS,
-        userPrincipalName: null,
-      });
+      expect(res.config).toEqual({ tenantKind: 'personal', folderRoots: DEFAULT_ROOTS, userPrincipalName: null });
     },
   );
 
@@ -116,16 +99,16 @@ describe("connect", () => {
   // that failed connect for every personal account before 400 was treated as
   // personal — keep it as a literal regression guard alongside the status
   // sweep above.
-  it("treats the real MSA 400 BadRequest body on /organization as personal", async () => {
+  it('treats the real MSA 400 BadRequest body on /organization as personal', async () => {
     const { fetchFn } = graphFetch({
-      about: { mail: "me@outlook.com" },
+      about: { mail: 'me@outlook.com' },
       organization: {
         status: 400,
         body: {
           error: {
-            code: "BadRequest",
+            code: 'BadRequest',
             message:
-              "This API is not supported for MSA accounts (no addressUrl for Microsoft.DirectoryServices,False).",
+              'This API is not supported for MSA accounts (no addressUrl for Microsoft.DirectoryServices,False).',
           },
         },
       },
@@ -133,16 +116,12 @@ describe("connect", () => {
     const source = createMs365Source(makeHost(fetchFn), instantClock);
     const { auth } = makeAuth();
     const res = await source.connect(auth);
-    expect(res.config).toEqual({
-      tenantKind: "personal",
-      folderRoots: DEFAULT_ROOTS,
-      userPrincipalName: null,
-    });
+    expect(res.config).toEqual({ tenantKind: 'personal', folderRoots: DEFAULT_ROOTS, userPrincipalName: null });
   });
 
-  it("propagates a 429 on /organization — a retry could still classify it", async () => {
+  it('propagates a 429 on /organization — a retry could still classify it', async () => {
     const { fetchFn } = graphFetch({
-      about: { mail: "me@corp.com" },
+      about: { mail: 'me@corp.com' },
       organization: { status: 429, body: {} },
     });
     const source = createMs365Source(makeHost(fetchFn), instantClock);
@@ -150,55 +129,45 @@ describe("connect", () => {
     await expect(source.connect(auth)).rejects.toThrow(/429/);
   });
 
-  it("classifies a non-empty /organization value as work", async () => {
+  it('classifies a non-empty /organization value as work', async () => {
     const { fetchFn } = graphFetch({
-      about: { mail: "me@corp.com" },
-      organization: { value: [{ id: "org-a" }, { id: "org-b" }] },
+      about: { mail: 'me@corp.com' },
+      organization: { value: [{ id: 'org-a' }, { id: 'org-b' }] },
     });
     const source = createMs365Source(makeHost(fetchFn), instantClock);
     const { auth } = makeAuth();
     const res = await source.connect(auth);
-    expect(res.config).toEqual({
-      tenantKind: "work",
-      folderRoots: DEFAULT_ROOTS,
-      userPrincipalName: null,
-    });
+    expect(res.config).toEqual({ tenantKind: 'work', folderRoots: DEFAULT_ROOTS, userPrincipalName: null });
   });
 
-  it("propagates an unexpected /organization failure (e.g. 500) rather than guessing personal", async () => {
+  it('propagates an unexpected /organization failure (e.g. 500) rather than guessing personal', async () => {
     const { fetchFn } = graphFetch({
-      about: { mail: "me@corp.com" },
-      organization: { status: 500, body: "oops" },
+      about: { mail: 'me@corp.com' },
+      organization: { status: 500, body: 'oops' },
     });
     const source = createMs365Source(makeHost(fetchFn), instantClock);
     const { auth } = makeAuth();
     await expect(source.connect(auth)).rejects.toThrow(/500/);
   });
 
-  it("throws when oauth returns no accessToken, before any fetch", async () => {
+  it('throws when oauth returns no accessToken, before any fetch', async () => {
     const { fetchFn, calls } = graphFetch({});
     const source = createMs365Source(makeHost(fetchFn), instantClock);
-    const { auth } = makeAuth({
-      creds: { refreshToken: "ms-test-refresh-deadbeef" },
-    });
+    const { auth } = makeAuth({ creds: { refreshToken: 'ms-test-refresh-deadbeef' } });
     await expect(source.connect(auth)).rejects.toThrow(/no access token/);
     expect(calls).toHaveLength(0);
   });
 
-  it("throws when /me is missing both mail and userPrincipalName", async () => {
-    const { fetchFn } = graphFetch({
-      about: { mail: null, userPrincipalName: undefined },
-    });
+  it('throws when /me is missing both mail and userPrincipalName', async () => {
+    const { fetchFn } = graphFetch({ about: { mail: null, userPrincipalName: undefined } });
     const source = createMs365Source(makeHost(fetchFn), instantClock);
     const { auth } = makeAuth();
-    await expect(source.connect(auth)).rejects.toThrow(
-      /missing both mail and userPrincipalName/,
-    );
+    await expect(source.connect(auth)).rejects.toThrow(/missing both mail and userPrincipalName/);
   });
 });
 
-describe("connect — default folder selection", () => {
-  it("a mailbox without an Archive folder gets Inbox and Sent Items", async () => {
+describe('connect — default folder selection', () => {
+  it('a mailbox without an Archive folder gets Inbox and Sent Items', async () => {
     const { archive: _omit, ...wellKnown } = DEFAULT_FOLDERS.wellKnown!;
     const { fetchFn } = graphFetch({ folders: { top: [], wellKnown } });
     const source = createMs365Source(makeHost(fetchFn), instantClock);
@@ -206,34 +175,27 @@ describe("connect — default folder selection", () => {
     expect(res.config?.folderRoots).toEqual(DEFAULT_ROOTS.slice(0, 2));
   });
 
-  it("declares folderScope", () => {
-    const source = createMs365Source(
-      makeHost(graphFetch().fetchFn),
-      instantClock,
-    );
+  it('declares folderScope', () => {
+    const source = createMs365Source(makeHost(graphFetch().fetchFn), instantClock);
     expect(source.descriptor.folderScope).toBe(true);
   });
 });
 
-describe("reauthenticate (Reconnect grants Calendars.Read to an existing account)", () => {
-  const account = { identifier: "me@x.com" } as never;
+describe('reauthenticate (Reconnect grants Calendars.Read to an existing account)', () => {
+  const account = { identifier: 'me@x.com' } as never;
 
-  it("signs in with the 3.0.0 scopes and accepts the same account", async () => {
-    const { fetchFn } = graphFetch({ about: { mail: "Me@X.com" } });
+  it('signs in with the 3.0.0 scopes and accepts the same account', async () => {
+    const { fetchFn } = graphFetch({ about: { mail: 'Me@X.com' } });
     const source = createMs365Source(makeHost(fetchFn), instantClock);
     const { auth, getScopes } = makeAuth();
-    await expect(
-      source.reauthenticate!(account, auth),
-    ).resolves.toBeUndefined();
+    await expect(source.reauthenticate!(account, auth)).resolves.toBeUndefined();
     expect(getScopes()).toEqual(SCOPES);
   });
 
-  it("refuses a different Microsoft account", async () => {
-    const { fetchFn } = graphFetch({ about: { mail: "other@x.com" } });
+  it('refuses a different Microsoft account', async () => {
+    const { fetchFn } = graphFetch({ about: { mail: 'other@x.com' } });
     const source = createMs365Source(makeHost(fetchFn), instantClock);
     const { auth } = makeAuth();
-    await expect(source.reauthenticate!(account, auth)).rejects.toThrow(
-      "signed in as other@x.com",
-    );
+    await expect(source.reauthenticate!(account, auth)).rejects.toThrow('signed in as other@x.com');
   });
 });
