@@ -8,7 +8,7 @@
 import { createMs365Source } from '../source';
 import { EMAIL_THREAD_DOCUMENT_TYPE } from '../to-document';
 import type { Batch } from '@kiagent/connector-sdk';
-import type { Ms365Cursor } from '../cursor';
+import { RESCAN, type Ms365Cursor } from '../cursor';
 import type { Ms365ThreadItem } from '../to-document';
 import { collect, collectMail, graphFetch, graphMsg, instantClock, makeHost, makeSession } from '../testing/harness';
 
@@ -22,7 +22,7 @@ function makeSource(world: Parameters<typeof graphFetch>[0]) {
 
 const liveCursor = (inboxDelta: string, sentDelta: string): Ms365Cursor => ({
   v: 2,
-  rescan: 2,
+  rescan: RESCAN,
   phase: 'live',
   folders: { 'INBOX-ID': { delta: inboxDelta }, 'SENT-ID': { delta: sentDelta } },
   pending: [],

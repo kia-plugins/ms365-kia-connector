@@ -5,7 +5,7 @@ import type {
   FolderSelectionChannel,
 } from '@kiagent/connector-sdk';
 import { createMs365Source } from '../source';
-import type { Ms365Cursor } from '../cursor';
+import { RESCAN, type Ms365Cursor } from '../cursor';
 import {
   graphFetch,
   instantClock,
@@ -172,7 +172,7 @@ describe('manageFolders', () => {
   it('removed folder states leave the cursor; kept and newly tracked ones stay / start', async () => {
     const cursor: Ms365Cursor = {
       v: 2,
-      rescan: 2,
+      rescan: RESCAN,
       phase: 'live',
       folders: {
         'INBOX-ID': { delta: 'DI' },
@@ -226,7 +226,7 @@ describe('manageFolders: the Calendars tab (spec 2026-09-30 §6)', () => {
   };
   const cursorWithCal = {
     v: 2,
-    rescan: 2,
+    rescan: RESCAN,
     phase: 'live',
     folders: {},
     pending: [],

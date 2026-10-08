@@ -138,4 +138,30 @@ describe('buildThreadUrl', () => {
     expect(after.metadata.folders).toEqual(['ARCHIVE-ID', 'SENT-ID']);
     expect(before.scopeRootId).toBe('INBOX-ID');
   });
+
+  it('adds per-message recipients and contact evidence like Gmail', () => {
+    const m1 = graphMsg({
+      id: 'm1',
+      internetMessageId: '<m1@x>',
+      from: { emailAddress: { name: 'Jordan Lee', address: 'jordan@brightline.example' } },
+      toRecipients: [{ emailAddress: { name: 'Alex Morgan', address: 'alex@northwind.example' } }],
+      ccRecipients: [{ emailAddress: { name: 'Kenji Mori', address: 'kenji@brightline.example' } }],
+      receivedDateTime: '2026-10-02T09:00:00Z',
+      body: {
+        contentType: 'text',
+        content: 'Numbers attached.\n\n--\nJordan Lee\nHead of Partnerships | Brightline Labs\n+1 415 555 0142',
+      },
+    });
+    const doc = toDocument({ conversationId: 'C1', tenantKind: 'personal', scopeRootId: null, messages: [m1] })!;
+    const meta = doc.metadata as any;
+    expect(meta.messages[0].to).toEqual(['Alex Morgan <alex@northwind.example>']);
+    expect(meta.messages[0].cc).toEqual(['Kenji Mori <kenji@brightline.example>']);
+    expect(meta.contactEvidence.version).toBe(1);
+    expect(meta.contactEvidence.messages[0]).toMatchObject({
+      messageKey: '<m1@x>',
+      author: 'jordan@brightline.example',
+      at: '2026-10-02T09:00:00.000Z',
+    });
+    expect(meta.contactEvidence.messages[0].signature).toContain('Head of Partnerships');
+  });
 });

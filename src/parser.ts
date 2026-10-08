@@ -1,3 +1,4 @@
+import { extractMessageEvidence, type MessageEvidenceV1 } from './email-evidence';
 /**
  * Microsoft Graph mail message shapes and parsing, ported verbatim from
  * the legacy v1 repo's `src/main/connectors/ms365/parser.ts` (itself sharing
@@ -62,6 +63,7 @@ export interface ParsedEmail {
   body: string;
   htmlBody: string | null;
   headers: Record<string, string>;
+  evidence: MessageEvidenceV1;
 }
 
 export function parseGraphMessage(msg: GraphMessage): ParsedEmail {
@@ -70,17 +72,27 @@ export function parseGraphMessage(msg: GraphMessage): ParsedEmail {
   const content = msg.body?.content ?? '';
   const body = isHtml ? '' : content;
   const htmlBody = isHtml ? content : null;
+  const from = formatRecipient(msg.from);
+  const date = parseDate(msg.receivedDateTime);
+  const messageId = msg.internetMessageId ?? msg.id ?? '';
   return {
-    messageId: msg.internetMessageId ?? msg.id ?? '',
+    messageId,
     threadId: msg.conversationId ?? '',
-    from: formatRecipient(msg.from),
+    from,
     to: (msg.toRecipients ?? []).map(formatRecipient).filter(Boolean),
     cc: (msg.ccRecipients ?? []).map(formatRecipient).filter(Boolean),
-    date: parseDate(msg.receivedDateTime),
+    date,
     subject: msg.subject ?? '',
     body,
     htmlBody,
     headers,
+    evidence: extractMessageEvidence({
+      messageKey: messageId,
+      author: from,
+      at: date.toISOString(),
+      plain: body,
+      html: htmlBody,
+    }),
   };
 }
 

@@ -35,14 +35,15 @@ export interface Ms365Cursor {
    *  without the current one (loadCursor) restarts enumeration once —
    *  unchanged threads re-upsert with what the new generation adds.
    *  1 = attachment children (2.2.0, stored as `attachments: 1`);
-   *  2 = reply targets (3.0.0). */
+   *  2 = reply targets (3.0.0);
+   *  3 = per-message recipients + contact evidence (3.1.0). */
   rescan?: typeof RESCAN;
   /** The calendar half (since 3.0.0); absent until the first calendar pull. */
   calendar?: CalCursor;
 }
 
 /** Current enumeration generation — bump to re-emit every conversation. */
-export const RESCAN = 2;
+export const RESCAN = 3;
 
 /** v1: three phases over the two well-known folder names. */
 export type LegacyMs365Cursor =

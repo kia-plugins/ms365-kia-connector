@@ -106,6 +106,14 @@ export function toDocument(item: Ms365ThreadItem): DocumentInput | DocumentInput
   // Reply targets for kiagent-core's draft_reply (reply-target.ts). Absent
   // when no message names anyone but you.
   const outbound = replyTargets(item.messages, item.selfAddress);
+  const contactEvidence = {
+    version: 1 as const,
+    messages: parsed
+      .map((m) => m.evidence)
+      .filter((e) => e.author)
+      .sort((a, b) => (a.at ?? '').localeCompare(b.at ?? ''))
+      .slice(-32),
+  };
   const thread: DocumentInput = {
     externalId: item.conversationId,
     type: EMAIL_THREAD_DOCUMENT_TYPE,
@@ -123,9 +131,12 @@ export function toDocument(item: Ms365ThreadItem): DocumentInput | DocumentInput
       lastMessageAt: last.date.toISOString(),
       tenantKind: item.tenantKind,
       folders,
+      contactEvidence,
       messages: parsed.map((m) => ({
         id: m.messageId,
         from: m.from,
+        to: m.to,
+        cc: m.cc,
         date: m.date.toISOString(),
         snippet: m.body.slice(0, 200),
       })),

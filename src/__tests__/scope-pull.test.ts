@@ -6,7 +6,7 @@
 import type { Batch } from '@kiagent/connector-sdk';
 import { createMs365Source } from '../source';
 import { initialDeltaUrl } from '../graph-api';
-import type { Ms365Cursor } from '../cursor';
+import { RESCAN, type Ms365Cursor } from '../cursor';
 import { EMAIL_THREAD_DOCUMENT_TYPE, type Ms365ThreadItem } from '../to-document';
 import {
   collect,
@@ -38,7 +38,7 @@ function run(world: GraphWorld, config: Record<string, unknown>, cursor: unknown
 
 const live = (folders: Ms365Cursor['folders'], extra: Partial<Ms365Cursor> = {}): Ms365Cursor => ({
   v: 2,
-  rescan: 2,
+  rescan: RESCAN,
   phase: 'live',
   folders,
   pending: [],
@@ -150,6 +150,17 @@ describe('pull over the tracked folder tree', () => {
         attachments: 1,
       },
     ],
+    [
+      'a 3.0.0 cursor (reply targets, no contact evidence)',
+      {
+        v: 2,
+        rescan: 2,
+        phase: 'live',
+        folders: { 'INBOX-ID': { delta: `${G}/legacy-inbox` } },
+        pending: [],
+        retry: [],
+      },
+    ],
   ])('%s restarts enumeration once, so every conversation re-emits with its attachments and reply targets', async (_n, cursor) => {
     const { batches, calls } = run(
       { urls: { [initialDeltaUrl('INBOX-ID')]: { value: [], '@odata.deltaLink': `${G}/inbox-d2` } } },
@@ -159,7 +170,7 @@ describe('pull over the tracked folder tree', () => {
     const bs = await batches;
     expect(calls).not.toContain(`${G}/legacy-inbox`);
     expect(calls.some((u) => u.includes('/messages/delta?$select'))).toBe(true);
-    expect(last(bs).cursor).toMatchObject({ v: 2, rescan: 2, phase: 'live' });
+    expect(last(bs).cursor).toMatchObject({ v: 2, rescan: RESCAN, phase: 'live' });
   });
 });
 

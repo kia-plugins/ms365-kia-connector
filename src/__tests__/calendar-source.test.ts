@@ -5,7 +5,7 @@
  */
 import type { Batch } from '@kiagent/connector-sdk';
 import { createMs365Source, SCOPES } from '../source';
-import type { Ms365Cursor } from '../cursor';
+import { RESCAN, type Ms365Cursor } from '../cursor';
 import type { Ms365Item } from '../source';
 import {
   graphFetch,
@@ -21,7 +21,7 @@ const G = 'https://graph.microsoft.com/v1.0';
 const INBOX_ROOT = [{ id: 'INBOX-ID', name: 'Inbox' }];
 const live: Ms365Cursor = {
   v: 2,
-  rescan: 2,
+  rescan: RESCAN,
   phase: 'live',
   folders: { 'INBOX-ID': { delta: `${G}/inbox-d` } },
   pending: [],

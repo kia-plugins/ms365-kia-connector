@@ -1,6 +1,6 @@
 {
   "name": "ms365-kia-connector",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "private": true,
   "description": "Microsoft 365 (Outlook mail + calendar) connector for KIAgent (new extension platform)",
   "files": [
@@ -18,9 +18,11 @@
     "@kiagent/connector-sdk": "https://github.com/edjafarov/kiagent-core/releases/download/sdk-v1.7.0/kiagent-connector-sdk-1.7.0.tgz",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.11.0",
+    "@types/turndown": "^5.0.6",
     "esbuild": "^0.24.0",
     "jest": "^29.7.0",
     "ts-jest": "^29.2.0",
+    "turndown": "^7.2.4",
     "typescript": "^5.6.0"
   }
 }
