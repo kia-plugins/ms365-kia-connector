@@ -23,6 +23,19 @@ const DEFAULT_ROOTS = [
 ];
 
 describe('connect', () => {
+  it('persists userPrincipalName so Email Kia can match the sign-in UPN', async () => {
+    const { fetchFn } = graphFetch({
+      about: { mail: 'alice@company.com', userPrincipalName: 'alice@tenant.onmicrosoft.com' },
+      organization: { value: [{ id: 'org1' }] },
+    });
+    const source = createMs365Source(makeHost(fetchFn), instantClock);
+    const res = await source.connect(makeAuth().auth);
+    expect(res).toMatchObject({
+      identifier: 'alice@company.com',
+      config: expect.objectContaining({ userPrincipalName: 'alice@tenant.onmicrosoft.com' }),
+    });
+  });
+
   it('oauth happy path: Graph-only scopes, statuses, identifier = mail, tenantKind = work', async () => {
     const { fetchFn, calls } = graphFetch({
       about: { mail: 'ed@corp.com', userPrincipalName: 'ed_corp.com#EXT#@tenant.onmicrosoft.com' },
@@ -42,7 +55,11 @@ describe('connect', () => {
     ]);
     expect(res).toEqual({
       identifier: 'ed@corp.com',
-      config: { tenantKind: 'work', folderRoots: DEFAULT_ROOTS },
+      config: {
+        tenantKind: 'work',
+        folderRoots: DEFAULT_ROOTS,
+        userPrincipalName: 'ed_corp.com#EXT#@tenant.onmicrosoft.com',
+      },
     });
     expect(calls.some((u) => u.includes('/v1.0/me?'))).toBe(true);
     expect(calls.some((u) => u.includes('/v1.0/organization'))).toBe(true);
@@ -57,7 +74,11 @@ describe('connect', () => {
     const { auth } = makeAuth();
     const res = await source.connect(auth);
     expect(res.identifier).toBe('alice@tenant.onmicrosoft.com');
-    expect(res.config).toEqual({ tenantKind: 'personal', folderRoots: DEFAULT_ROOTS });
+    expect(res.config).toEqual({
+      tenantKind: 'personal',
+      folderRoots: DEFAULT_ROOTS,
+      userPrincipalName: 'alice@tenant.onmicrosoft.com',
+    });
   });
 
   it.each([400, 401, 403, 404, 405])(
@@ -70,7 +91,7 @@ describe('connect', () => {
       const source = createMs365Source(makeHost(fetchFn), instantClock);
       const { auth } = makeAuth();
       const res = await source.connect(auth);
-      expect(res.config).toEqual({ tenantKind: 'personal', folderRoots: DEFAULT_ROOTS });
+      expect(res.config).toEqual({ tenantKind: 'personal', folderRoots: DEFAULT_ROOTS, userPrincipalName: null });
     },
   );
 
@@ -95,7 +116,7 @@ describe('connect', () => {
     const source = createMs365Source(makeHost(fetchFn), instantClock);
     const { auth } = makeAuth();
     const res = await source.connect(auth);
-    expect(res.config).toEqual({ tenantKind: 'personal', folderRoots: DEFAULT_ROOTS });
+    expect(res.config).toEqual({ tenantKind: 'personal', folderRoots: DEFAULT_ROOTS, userPrincipalName: null });
   });
 
   it('propagates a 429 on /organization — a retry could still classify it', async () => {
@@ -116,7 +137,7 @@ describe('connect', () => {
     const source = createMs365Source(makeHost(fetchFn), instantClock);
     const { auth } = makeAuth();
     const res = await source.connect(auth);
-    expect(res.config).toEqual({ tenantKind: 'work', folderRoots: DEFAULT_ROOTS });
+    expect(res.config).toEqual({ tenantKind: 'work', folderRoots: DEFAULT_ROOTS, userPrincipalName: null });
   });
 
   it('propagates an unexpected /organization failure (e.g. 500) rather than guessing personal', async () => {

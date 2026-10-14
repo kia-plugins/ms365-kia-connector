@@ -107,6 +107,47 @@ describe('toDocument', () => {
   });
 });
 
+describe('owner-channel mail (Email Kia)', () => {
+  const me = { emailAddress: { address: 'me@company.com' } };
+  const kia = { emailAddress: { address: 'Me+Kia@Company.com' } };
+  const answer = graphMsg({
+    id: 'k1',
+    from: me,
+    toRecipients: [me],
+    body: { contentType: 'text', content: 'Kia answer' },
+    internetMessageHeaders: [{ name: 'X-Kia-Channel', value: 'owner' }],
+  });
+  const item = (messages: Ms365ThreadItem['messages']): Ms365ThreadItem => ({
+    conversationId: 'C1',
+    tenantKind: 'work',
+    scopeRootId: null,
+    selfAddress: 'me@company.com',
+    messages,
+  });
+
+  it('a conversation with the assistant is never indexed', () => {
+    const request = graphMsg({ from: me, toRecipients: [kia], body: { contentType: 'text', content: 'Prep me' } });
+    expect(toDocument(item([request, answer]))).toBeNull();
+  });
+
+  it('a request Cc the kia address counts too', () => {
+    expect(toDocument(item([graphMsg({ from: me, ccRecipients: [kia] })]))).toBeNull();
+  });
+
+  it("a real thread keeps everyone else's mail and drops Kia's answer", () => {
+    const bob = graphMsg({ body: { contentType: 'text', content: 'from bob' } });
+    const doc = toDocument(item([bob, answer]))!;
+    expect(doc.metadata).toMatchObject({ messageCount: 1 });
+    expect(doc.markdown).toContain('from bob');
+    expect(doc.markdown).not.toContain('Kia answer');
+  });
+
+  it('without selfAddress only the header marks owner-channel mail', () => {
+    const request = graphMsg({ from: me, toRecipients: [kia] });
+    expect(toDocument({ ...item([request, answer]), selfAddress: undefined })).not.toBeNull();
+  });
+});
+
 describe('buildThreadUrl', () => {
   it('uses outlook.office.com for a work tenant', () => {
     const url = buildThreadUrl('work', 'C1');

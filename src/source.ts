@@ -28,6 +28,7 @@
  */
 import type {
   Account,
+  AddressedQuery,
   AuthChannel,
   Credentials,
   Document,
@@ -43,6 +44,7 @@ import type {
 } from '@kiagent/connector-sdk';
 import { GraphClient, statusOf, type GraphClientDeps } from './graph-client';
 import { downloadAttachment, GRAPH_BASE } from './graph-api';
+import { listAddressedTo } from './addressed';
 import {
   RESCAN,
   rescope,
@@ -192,6 +194,14 @@ export function createMs365Source(
   return {
     descriptor,
 
+    /** Email Kia: mail addressed to the account's +kia address (addressed.ts). */
+    async listAddressedTo(session: Session, q: AddressedQuery) {
+      const client = clientFor(session);
+      const sent = (await resolveWellKnown(client, ['sentitems'])).sentitems;
+      if (!sent) throw new Error('Sent Items folder not found');
+      return listAddressedTo(client, q, sent.id);
+    },
+
     async connect(auth: AuthChannel) {
       auth.status('Waiting for Microsoft sign-in…');
       const creds: Credentials = await auth.oauth(SCOPES);
@@ -218,7 +228,9 @@ export function createMs365Source(
       const tenantKind = await probeTenantKind(client);
       const folderRoots = await wellKnownRoots(client, NEW_ACCOUNT_DEFAULTS);
 
-      return { identifier, config: { tenantKind, folderRoots } };
+      // Email Kia matches the sign-in identity, which may be the UPN, not mail.
+      const userPrincipalName = me.userPrincipalName ?? null;
+      return { identifier, config: { tenantKind, folderRoots, userPrincipalName } };
     },
 
     async *pull(session: Session, cursor: Ms365Cursor | null) {

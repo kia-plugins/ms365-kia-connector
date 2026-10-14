@@ -35,6 +35,11 @@ import {
  *  this call — nothing may still be in flight once it has given up. */
 export const SEND_DEADLINE_MS = 40_000;
 
+const OWNER_CHANNEL_HEADERS = [
+  { name: 'X-Kia-Channel', value: 'owner' },
+  { name: 'X-Auto-Response-Suppress', value: 'OOF, AutoReply' },
+];
+
 const recipients = (addrs: string[] | undefined) =>
   (addrs ?? []).map((address) => ({ emailAddress: { address } }));
 
@@ -51,6 +56,12 @@ export function createMs365Sender(
       const to = intent.to ?? [];
       if (to.length === 0) throw new Error('not sent: this draft has no recipient');
       const body = { contentType: 'Text', content: intent.bodyMarkdown };
+      // Email Kia: answers to yourself whose replies go back to you+kia@,
+      // marked so the corpus skips them and autoresponders stay quiet.
+      const extra = {
+        ...(intent.replyTo ? { replyTo: recipients([intent.replyTo]) } : {}),
+        ...(intent.ownerChannel ? { internetMessageHeaders: OWNER_CHANNEL_HEADERS } : {}),
+      };
 
       let url: string;
       let payload: unknown;
@@ -60,7 +71,12 @@ export function createMs365Sender(
           throw new Error('not sent: this draft has no message to reply to');
         url = `${GRAPH_BASE}/me/messages/${encodeURIComponent(messageId)}/reply`;
         payload = {
-          message: { toRecipients: recipients(to), ccRecipients: recipients(intent.cc), body },
+          message: {
+            toRecipients: recipients(to),
+            ccRecipients: recipients(intent.cc),
+            body,
+            ...extra,
+          },
         };
       } else {
         url = `${GRAPH_BASE}/me/sendMail`;
@@ -70,6 +86,7 @@ export function createMs365Sender(
             body,
             toRecipients: recipients(to),
             ccRecipients: recipients(intent.cc),
+            ...extra,
           },
           saveToSentItems: true,
         };

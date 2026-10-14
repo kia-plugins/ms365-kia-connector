@@ -177,6 +177,49 @@ describe('ms365 sender', () => {
     expect(err?.message).toMatch(/^graph 5\d\d /);
   });
 
+  it('an owner-channel reply sets Reply-To and the X- headers', async () => {
+    const { s, calls } = sender([{ status: 202 }]);
+    await s.send(
+      {
+        accountId: 'A' as never,
+        kind: 'reply',
+        outboundRef: { messageId: 'AAMk1' },
+        to: ['me@company.com'],
+        bodyMarkdown: 'answer',
+        replyTo: 'me+kia@company.com',
+        ownerChannel: true,
+      },
+      ctx,
+    );
+    expect(calls[0].url).toBe(`${GRAPH_BASE}/me/messages/AAMk1/reply`);
+    const { message } = JSON.parse(calls[0].init.body!);
+    expect(message.replyTo).toEqual([{ emailAddress: { address: 'me+kia@company.com' } }]);
+    expect(message.internetMessageHeaders).toEqual([
+      { name: 'X-Kia-Channel', value: 'owner' },
+      { name: 'X-Auto-Response-Suppress', value: 'OOF, AutoReply' },
+    ]);
+    expect(message.toRecipients).toEqual([{ emailAddress: { address: 'me@company.com' } }]);
+  });
+
+  it('owner-channel new mail carries them too', async () => {
+    const { s, calls } = sender([{ status: 202 }]);
+    await s.send(
+      {
+        accountId: 'A' as never,
+        kind: 'new',
+        to: ['me@company.com'],
+        subject: 'Daily brief',
+        bodyMarkdown: 'brief',
+        replyTo: 'me+kia@company.com',
+        ownerChannel: true,
+      },
+      ctx,
+    );
+    const { message } = JSON.parse(calls[0].init.body!);
+    expect(message.replyTo).toEqual([{ emailAddress: { address: 'me+kia@company.com' } }]);
+    expect(message.internetMessageHeaders).toHaveLength(2);
+  });
+
   it('never retries a network error', async () => {
     let n = 0;
     const s = createMs365Sender(
