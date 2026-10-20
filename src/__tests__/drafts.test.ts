@@ -272,6 +272,21 @@ describe('ms365 drafts: read', () => {
     await expect(gone.d.read(REF, ctx)).resolves.toEqual({ state: 'gone' });
   });
 
+  it('a throttled Deleted Items lookup fails this read only; the next one asks again', async () => {
+    let throttled = true;
+    const { d, calls } = graph([
+      ['GET', /^\/me\/messages\/D1\?/, { status: 200, body: { isDraft: true, parentFolderId: 'DELETED' } }],
+      ['GET', /^\/me\/mailFolders\/deleteditems/, () =>
+        throttled ? { status: 429 } : { status: 200, body: { id: 'DELETED' } }],
+    ]);
+    await expect(d.read(REF, ctx)).rejects.toThrow(/graph 429/);
+    throttled = false;
+    await expect(d.read(REF, ctx)).resolves.toEqual({ state: 'deleted' });
+    await d.read(REF, ctx);
+    // five throttled tries, one found, then remembered
+    expect(calls.filter((c) => /mailFolders/.test(c.url))).toHaveLength(6);
+  });
+
   it('a mailbox-level 404 is not "gone"', async () => {
     const { d } = graph([
       ['GET', /^\/me\/messages\/D1\?/, { status: 404, body: { error: { code: 'ResourceNotFound' } } }],

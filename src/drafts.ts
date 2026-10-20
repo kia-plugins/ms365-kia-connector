@@ -32,7 +32,6 @@ import type {
   SendResult,
   SenderContext,
 } from '@kiagent/connector-sdk';
-import { resolveWellKnown } from './folders';
 import { GRAPH_BASE } from './graph-api';
 import {
   GraphApiError,
@@ -91,8 +90,9 @@ export function createMs365Drafts(
   clock?: Pick<GraphClientDeps, 'sleep' | 'random'> & { now?: () => number },
 ): DraftMirror {
   const now = clock?.now ?? Date.now;
-  /** Deleted Items' id per account — a well-known folder never moves. */
-  const deletedItems = new Map<string, Promise<string | undefined>>();
+  /** Deleted Items' id per account — a well-known folder never moves.
+   *  Only a found id is kept; a miss is asked again next time. */
+  const deletedItems = new Map<string, string>();
 
   const clientFor = (ctx?: SenderContext) => {
     // Refreshed host-side per call — this process has no vault.
@@ -169,14 +169,17 @@ export function createMs365Drafts(
     }
   }
 
-  function deletedItemsId(accountId: string, client: GraphClient) {
-    let p = deletedItems.get(accountId);
-    if (!p) {
-      p = resolveWellKnown(client, ['deleteditems']).then((k) => k.deleteditems?.id);
-      p.catch(() => deletedItems.delete(accountId));
-      deletedItems.set(accountId, p);
-    }
-    return p;
+  /** Under the read's own deadline, like every call here. */
+  async function deletedItemsId(accountId: string, client: GraphClient, deadline: number) {
+    const known = deletedItems.get(accountId);
+    if (known) return known;
+    const f = await client.write<{ id?: string }>(
+      'GET',
+      `${GRAPH_BASE}/me/mailFolders/deleteditems?$select=id`,
+      { deadline, idempotent: true, now },
+    );
+    if (f?.id) deletedItems.set(accountId, f.id);
+    return f?.id;
   }
 
   return {
@@ -306,7 +309,7 @@ export function createMs365Drafts(
           state: 'sent',
           ...(m.internetMessageId ? { externalMessageId: m.internetMessageId } : {}),
         };
-      if (m.parentFolderId && m.parentFolderId === (await deletedItemsId(ref.accountId, client)))
+      if (m.parentFolderId && m.parentFolderId === (await deletedItemsId(ref.accountId, client, deadline)))
         return { state: 'deleted' };
       const files = await client.write<{ value?: GraphAttachment[] }>(
         'GET',
