@@ -23,6 +23,7 @@ import type {
   Sender,
   SenderContext,
 } from '@kiagent/connector-sdk';
+import { createMs365Drafts } from './drafts';
 import { GRAPH_BASE } from './graph-api';
 import {
   GraphApiError,
@@ -48,6 +49,8 @@ export function createMs365Sender(
   clock?: Pick<GraphClientDeps, 'sleep' | 'random'>,
 ): Sender {
   return {
+    // Outbox drafts mirrored as Outlook drafts (platform 2.15.0).
+    drafts: createMs365Drafts(host, clock),
     async send(intent: SendIntent, ctx?: SenderContext): Promise<SendResult> {
       // Refreshed host-side at send time — this process has no vault.
       const token = ctx?.credentials?.accessToken;
@@ -109,7 +112,7 @@ export function createMs365Sender(
 
 /** Graph's answer → the outbound layer's wording. Only statuses that prove
  *  Graph REFUSED the request become a "nothing was sent" marker. */
-function sendError(e: unknown): Error {
+export function sendError(e: unknown): Error {
   if (isAuthError(e))
     return new Error('your Microsoft 365 sign-in no longer works — reconnect the account in Settings');
   if (!(e instanceof GraphApiError)) return e instanceof Error ? e : new Error(String(e));
