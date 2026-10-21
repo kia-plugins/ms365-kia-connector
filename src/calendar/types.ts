@@ -19,6 +19,9 @@ export interface GraphEvent {
   location?: { displayName?: string } | null;
   body?: { contentType?: string; content?: string } | null;
   originalStartTimeZone?: string;
+  categories?: string[];
+  /** Expanded on the calendarView read (KIA_STAMP_ID only). */
+  singleValueExtendedProperties?: Array<{ id: string; value?: string }>;
 }
 export interface CalMeta { id: string; name: string; color: string | null }
 export interface CalendarItem {
@@ -27,4 +30,4 @@ export interface CalendarItem {
   /** Picks the Outlook web host for the link, as mail's items do. */
   tenantKind: 'work' | 'personal';
 }
-export interface GraphCalendar { id: string; name: string; hexColor?: string; isDefaultCalendar?: boolean; canEdit?: boolean; owner?: GraphEmail }
+export interface GraphCalendar { id: string; name: string; hexColor?: string; isDefaultCalendar?: boolean; canEdit?: boolean; owner?: GraphEmail; allowedOnlineMeetingProviders?: string[] }

@@ -1,4 +1,5 @@
 import type { DocumentInput } from '@kiagent/connector-sdk';
+import { categoryOf } from './stamp';
 import type { CalendarItem, GraphDateTime, GraphEvent } from './types';
 
 export const CAL_DOC_TYPE = 'calendar.event';
@@ -76,10 +77,11 @@ export function calendarToDocument(item: CalendarItem): DocumentInput {
       start, end, allDay,
       ...(allDay ? { startDate: datePart(e.start), endDate: datePart(e.end) } : {}),
       timeZone: e.originalStartTimeZone ?? 'UTC',
-      status: e.isCancelled ? 'cancelled' : 'confirmed',
+      status: e.isCancelled ? 'cancelled' : e.showAs === 'tentative' ? 'tentative' : 'confirmed',
       organizer, selfResponse: response(e.responseStatus?.response),
       attendees, participants, conferenceUrl, location,
-      eventType: 'default',
+      eventType: e.showAs === 'oof' ? 'outOfOffice' : 'default',
+      category: categoryOf(e),
       transparency: e.showAs === 'free' ? 'transparent' : 'opaque',
     },
   };

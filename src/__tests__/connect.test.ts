@@ -47,7 +47,7 @@ describe('connect', () => {
     const res = await source.connect(auth);
 
     expect(getScopes()).toEqual(SCOPES);
-    expect(getScopes()).toEqual(['Mail.ReadWrite', 'Mail.Send', 'Calendars.Read', 'User.Read']);
+    expect(getScopes()).toEqual(['Mail.ReadWrite', 'Mail.Send', 'Calendars.ReadWrite', 'MailboxSettings.ReadWrite', 'User.Read']);
     expect(statuses).toEqual([
       'Waiting for Microsoft sign-in…',
       'Fetching Microsoft 365 profile…',
