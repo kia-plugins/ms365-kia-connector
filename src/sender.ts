@@ -23,7 +23,7 @@ import type {
   Sender,
   SenderContext,
 } from '@kiagent/connector-sdk';
-import { createMs365Drafts } from './drafts';
+import { createMs365Drafts, graphBody } from './drafts';
 import { GRAPH_BASE } from './graph-api';
 import {
   GraphApiError,
@@ -58,7 +58,7 @@ export function createMs365Sender(
         throw new Error('no Microsoft 365 credentials — reconnect the account in Settings');
       const to = intent.to ?? [];
       if (to.length === 0) throw new Error('not sent: this draft has no recipient');
-      const body = { contentType: 'Text', content: intent.bodyMarkdown };
+      const body = graphBody(intent.bodyMarkdown, intent.bodyHtml);
       // Email Kia: answers to yourself whose replies go back to you+kia@,
       // marked so the corpus skips them and autoresponders stay quiet.
       const extra = {

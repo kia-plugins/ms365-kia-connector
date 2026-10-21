@@ -32,6 +32,7 @@ import type {
   SendResult,
   SenderContext,
 } from '@kiagent/connector-sdk';
+import { htmlToText } from './email-evidence';
 import { GRAPH_BASE } from './graph-api';
 import {
   GraphApiError,
@@ -67,6 +68,24 @@ const msgUrl = (id: string) => `${GRAPH_BASE}/me/messages/${encodeURIComponent(i
 const READ_SELECT =
   'isDraft,parentFolderId,internetMessageId,conversationId,subject,' +
   'toRecipients,ccRecipients,bccRecipients,body';
+
+/** Kia's body for Graph: its HTML rendering when core sent one (platform
+ *  2.15.0), else the Markdown as text. */
+export function graphBody(markdown: string, html: string | undefined) {
+  return html !== undefined
+    ? { contentType: 'HTML', content: html }
+    : { contentType: 'Text', content: markdown };
+}
+
+/** A draft's body for core: the HTML and its text, or the text alone. */
+function bodyOfRead(
+  body: { contentType?: string; content?: string } | undefined,
+): { bodyText: string; bodyHtml?: string } {
+  const content = (body?.content ?? '').replace(/\r\n/g, '\n');
+  if ((body?.contentType ?? '').toLowerCase() === 'html')
+    return { bodyText: htmlToText(content), bodyHtml: content };
+  return { bodyText: content };
+}
 
 const isItemGone = (e: unknown) =>
   e instanceof GraphApiError && e.status === 404 && e.code === 'ErrorItemNotFound';
@@ -186,7 +205,7 @@ export function createMs365Drafts(
     async create(intent, ctx): Promise<DraftRef> {
       const client = clientFor(ctx);
       const deadline = now() + DRAFT_DEADLINE_MS;
-      const body = { contentType: 'Text', content: intent.bodyMarkdown };
+      const body = graphBody(intent.bodyMarkdown, intent.bodyHtml);
       let made: GraphMessage | undefined;
       try {
         if (intent.kind === 'reply') {
@@ -249,7 +268,7 @@ export function createMs365Drafts(
         ...(patch.cc ? { ccRecipients: recipients(patch.cc) } : {}),
         ...(patch.subject !== undefined ? { subject: patch.subject ?? '' } : {}),
         ...(patch.bodyMarkdown !== undefined
-          ? { body: { contentType: 'Text', content: patch.bodyMarkdown } }
+          ? { body: graphBody(patch.bodyMarkdown, patch.bodyHtml) }
           : {}),
       };
       try {
@@ -293,8 +312,9 @@ export function createMs365Drafts(
       const deadline = now() + DRAFT_DEADLINE_MS;
       let m: GraphMessage | undefined;
       try {
+        // The body as Outlook holds it (HTML for Kia's formatted drafts):
+        // kiagent-core compares its words with what Kia wrote.
         m = await client.write<GraphMessage>('GET', `${msgUrl(ref.id)}?$select=${READ_SELECT}`, {
-          headers: { prefer: 'outlook.body-content-type="text"' },
           deadline,
           idempotent: true,
           now,
@@ -321,7 +341,7 @@ export function createMs365Drafts(
         cc: addressesOf(m.ccRecipients),
         bcc: addressesOf(m.bccRecipients),
         subject: m.subject ?? null,
-        bodyText: (m.body?.content ?? '').replace(/\r\n/g, '\n'),
+        ...bodyOfRead(m.body),
         attachments: (files?.value ?? [])
           .filter((a) => !a.isInline && a.name)
           .map((a) => ({

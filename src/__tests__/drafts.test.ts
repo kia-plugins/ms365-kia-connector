@@ -91,6 +91,12 @@ describe('ms365 drafts: create', () => {
     });
   });
 
+  it('a formatted draft is written as HTML (platform 2.15.0)', async () => {
+    const { d, calls, json } = graph([['POST', /^\/me\/messages$/, { status: 201, body: { id: 'D3' } }]]);
+    await d.create({ ...NEW, bodyHtml: '<div><p><b>Hi</b></p></div>' }, ctx);
+    expect(json(calls[0]).body).toEqual({ contentType: 'HTML', content: '<div><p><b>Hi</b></p></div>' });
+  });
+
   it('a small file is one POST; a large one goes through an upload session in 320 KiB-multiple chunks, without the token', async () => {
     const big = UPLOAD_CHUNK_BYTES + 10;
     expect(big).toBeGreaterThan(SIMPLE_ATTACHMENT_MAX_BYTES);
@@ -181,6 +187,12 @@ describe('ms365 drafts: update', () => {
     expect(json(calls.at(-1)!).name).toBe('new.pdf');
   });
 
+  it('a body patch with HTML writes HTML', async () => {
+    const { d, calls, json } = graph([['PATCH', /^\/me\/messages\/D1$/, { status: 200, body: {} }]]);
+    await d.update(REF, { bodyMarkdown: '**New**', bodyHtml: '<p><strong>New</strong></p>' }, ctx);
+    expect(json(calls[0])).toEqual({ body: { contentType: 'HTML', content: '<p><strong>New</strong></p>' } });
+  });
+
   it('a files-only change sends no PATCH', async () => {
     const { d, calls } = graph([['POST', /attachments$/, { status: 201, body: {} }]]);
     await d.update(REF, { attachments: [file('n.pdf', 1)] }, ctx);
@@ -250,8 +262,35 @@ describe('ms365 drafts: read', () => {
         attachments: [{ filename: 'a.pdf', mime: 'application/pdf', size: 10 }],
       },
     });
-    expect(calls[0].headers.prefer).toContain('outlook.body-content-type="text"');
+    // The body as Outlook holds it — no text conversion asked for.
+    expect(calls[0].headers.prefer).not.toContain('body-content-type');
     expect(calls[0].headers.prefer).toContain('ImmutableId');
+  });
+
+  it('an HTML draft reads as its HTML and that HTML as text', async () => {
+    const { d } = graph([
+      [
+        'GET',
+        /^\/me\/messages\/D1\?/,
+        {
+          status: 200,
+          body: {
+            isDraft: true,
+            parentFolderId: 'DRAFTS',
+            subject: 'Plan',
+            toRecipients: [],
+            body: { contentType: 'html', content: '<html><body><h2>Plan</h2>\r\n<p><b>one</b></p></body></html>' },
+          },
+        },
+      ],
+      folders,
+      ['GET', /^\/me\/messages\/D1\/attachments\?/, { status: 200, body: { value: [] } }],
+    ]);
+    const r = await d.read(REF, ctx);
+    expect(r.state).toBe('draft');
+    const c = (r as { content: { bodyText: string; bodyHtml?: string } }).content;
+    expect(c.bodyHtml).toBe('<html><body><h2>Plan</h2>\n<p><b>one</b></p></body></html>');
+    expect(c.bodyText).toBe('## Plan\n\n**one**');
   });
 
   it('isDraft false → sent; in Deleted Items → deleted; 404 → gone', async () => {
