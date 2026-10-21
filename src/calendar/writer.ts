@@ -22,12 +22,17 @@ import type {
   WritableCalendar,
 } from '@kiagent/connector-sdk';
 import { GRAPH_BASE } from '../graph-api';
-import { GraphApiError, GraphClient, type GraphClientDeps } from '../graph-client';
+import { GraphApiError, GraphClient, isAuthError, type GraphClientDeps } from '../graph-client';
 import { listCalendars } from './graph';
 import { KIA_STAMP_ID } from './stamp';
 
-/** Inside the host's call timeout; nothing may still be in flight after it. */
+/** Inside the host's call timeout (60 s); nothing may still be in flight after
+ *  it. ONE deadline per createEvent, shared by preparation and the POST. */
 export const CREATE_DEADLINE_MS = 40_000;
+/** The optional category setup may take at most this long, else it is skipped. */
+export const CATEGORY_BUDGET_MS = 8_000;
+/** A request is not started with less than this left on the deadline. */
+const MIN_BUDGET_MS = 1_000;
 
 const CATEGORY_NAME: Record<EventCategory, string> = { work: 'Work', personal: 'Personal', kids: 'Kids' };
 /** Outlook's preset category colours. */
@@ -108,34 +113,37 @@ export function createMs365CalendarWriter(
     }
   };
 
-  const ensureCategories = async (c: GraphClient, accountKey: string): Promise<void> => {
+  /** Optional work, bounded by `CATEGORY_BUDGET_MS` and the overall deadline;
+   *  never throws — an event without its category is fine. */
+  const ensureCategories = async (c: GraphClient, accountKey: string, deadline: number): Promise<void> => {
     if (categoriesDone.has(accountKey)) return;
-    categoriesDone.add(accountKey);
+    const bound = Math.min(deadline, Date.now() + CATEGORY_BUDGET_MS);
     try {
-      const have = await c.request<{ value?: Array<{ displayName?: string }> }>(
-        `${GRAPH_BASE}/me/outlook/masterCategories`,
+      const have = await c.write<{ value?: Array<{ displayName?: string }> }>(
+        'GET', `${GRAPH_BASE}/me/outlook/masterCategories`, { deadline: bound, idempotent: true },
       );
-      const names = new Set((have.value ?? []).map((v) => fold(v.displayName)));
+      const names = new Set((have?.value ?? []).map((v) => fold(v.displayName)));
       for (const cat of ['work', 'personal', 'kids'] as const) {
         if (names.has(fold(CATEGORY_NAME[cat]))) continue;
         await c.write('POST', `${GRAPH_BASE}/me/outlook/masterCategories`, {
           body: { displayName: CATEGORY_NAME[cat], color: CATEGORY_COLOR[cat] },
-          deadline: Date.now() + CREATE_DEADLINE_MS,
+          deadline: bound,
           idempotent: false,
         });
       }
+      categoriesDone.add(accountKey);
     } catch (e) {
-      // Never blocks the booking: the event is created either way.
+      // Never blocks the booking: the event is created either way. A skip for
+      // time is retried by the next create; any other failure is not.
+      if (!/timed out/.test((e as Error).message)) categoriesDone.add(accountKey);
       console.warn(`ms365: could not ensure Work/Personal/Kids categories: ${(e as Error).message}`);
     }
   };
 
-  const failure = async (e: unknown, c: GraphClient): Promise<Error> => {
+  const failure = (e: unknown): Error => {
+    if (isAuthError(e)) return new Error('reconnect Microsoft 365 in Settings — the sign-in has expired');
     if (!(e instanceof GraphApiError)) return e instanceof Error ? e : new Error(String(e));
-    if (e.status === 403) {
-      const who = await myAddress(c);
-      return new Error(`reconnect Microsoft 365${who ? ` (${who})` : ''} in Settings to allow adding events`);
-    }
+    if (e.status === 403) return new Error('reconnect Microsoft 365 in Settings to allow adding events');
     if (e.status === 429) return new Error('rate-limited: Outlook is busy — try again in a minute');
     if (e.status >= 400 && e.status < 500) {
       let msg: string | undefined;
@@ -178,15 +186,26 @@ export function createMs365CalendarWriter(
 
     async createEvent(intent: EventIntent, ctx: SenderContext): Promise<CreatedEvent> {
       const c = clientFor(ctx);
-      await ensureCategories(c, String(intent.accountId));
+      const deadline = Date.now() + CREATE_DEADLINE_MS;
+      // Nothing is created before the POST, so running out of time while
+      // preparing is a definite "not created".
+      const guard = () => {
+        if (deadline - Date.now() < MIN_BUDGET_MS)
+          throw new Error('not created: took too long preparing the event — try again');
+      };
+      guard();
+      await ensureCategories(c, String(intent.accountId), deadline);
 
       let teams = false;
       if (intent.conference === 'auto') {
+        guard();
         try {
-          const cal = await c.request<{ allowedOnlineMeetingProviders?: string[] }>(
+          const cal = await c.write<{ allowedOnlineMeetingProviders?: string[] }>(
+            'GET',
             `${GRAPH_BASE}/me/calendars/${encodeURIComponent(intent.calendarId)}?$select=allowedOnlineMeetingProviders`,
+            { deadline, idempotent: true },
           );
-          teams = cal.allowedOnlineMeetingProviders?.includes('teamsForBusiness') === true;
+          teams = cal?.allowedOnlineMeetingProviders?.includes('teamsForBusiness') === true;
         } catch {
           teams = false;
         }
@@ -217,15 +236,16 @@ export function createMs365CalendarWriter(
         ...(teams ? { isOnlineMeeting: true, onlineMeetingProvider: 'teamsForBusiness' } : {}),
       };
 
+      guard();
       let ev: { id: string; iCalUId?: string; webLink?: string; onlineMeeting?: { joinUrl?: string } | null };
       try {
         ev = await c.write('POST', `${GRAPH_BASE}/me/calendars/${encodeURIComponent(intent.calendarId)}/events`, {
           body: payload,
-          deadline: Date.now() + CREATE_DEADLINE_MS,
+          deadline,
           idempotent: true,
         });
       } catch (e) {
-        throw await failure(e, c);
+        throw failure(e);
       }
       return {
         eventId: ev.id,

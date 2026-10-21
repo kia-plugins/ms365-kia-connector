@@ -125,13 +125,42 @@ test('teams only when allowed; otherwise note', async () => {
 
 test('403 uses the calendar reconnect copy, not the send copy', async () => {
   const { w } = graph([
-    ['GET', /^\/me\?/, { status: 200, body: { mail: 'me@x.com' } }],
     CATS, catsPost, CAL([]),
     ['POST', /events$/, { status: 403, body: { error: { code: 'ErrorAccessDenied', message: 'nope' } } }],
   ]);
   const err = (await w.createEvent(INTENT, ctx).catch((e) => e)) as Error;
-  expect(err.message).toBe('reconnect Microsoft 365 (me@x.com) in Settings to allow adding events');
+  expect(err.message).toBe('reconnect Microsoft 365 in Settings to allow adding events');
   expect(err.message).not.toMatch(/send permission/);
+});
+
+describe('one create deadline', () => {
+  let t = 0;
+  let spy: jest.SpyInstance;
+  beforeEach(() => { t = 1_000_000; spy = jest.spyOn(Date, 'now').mockImplementation(() => t); });
+  afterEach(() => spy.mockRestore());
+  const slowCats = (ms: number) =>
+    ['GET', /^\/me\/outlook\/masterCategories/, () => { t += ms; return { status: 200, body: { value: [] } }; }] as [string, RegExp, () => Res];
+
+  test('slow category setup is skipped and the event is still posted', async () => {
+    const { w, posts } = graph([slowCats(9_000), catsPost, CAL([]), CREATE]);
+    await expect(w.createEvent(INTENT, ctx)).resolves.toMatchObject({ eventId: 'EV1' });
+    expect(posts(/masterCategories$/)).toHaveLength(0);
+    expect(posts(/events$/)).toHaveLength(1);
+  });
+
+  test('budget exhausted while preparing: "not created:" and no POST', async () => {
+    const { w, posts } = graph([slowCats(39_500), CAL([]), CREATE]);
+    // the category read is capped at 8 s by the bound, but the clock jumps past the overall budget
+    const err = (await w.createEvent({ ...INTENT, conference: 'auto' }, ctx).catch((e) => e)) as Error;
+    expect(err.message).toMatch(/^not created: /);
+    expect(posts(/events$/)).toHaveLength(0);
+  });
+
+  test('401 on POST tells the user to reconnect in Settings', async () => {
+    const { w } = graph([CATS, catsPost, CAL([]), ['POST', /events$/, { status: 401, body: {} }]]);
+    const err = (await w.createEvent(INTENT, ctx).catch((e) => e)) as Error;
+    expect(err.message).toMatch(/reconnect .* in Settings/);
+  });
 });
 
 test('429 and other 4xx map to their own copy', async () => {
