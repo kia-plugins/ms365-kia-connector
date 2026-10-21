@@ -79,9 +79,11 @@ import type { CalendarItem, GraphCalendar } from './calendar/types';
  * requests. `Calendars.Read` since 3.0.0: the calendar half (src/calendar).
  * `Mail.Send` backs the outbound Sender (sender.ts); accounts connected
  * before it get a "reconnect to grant send permission" on their first send
- * and keep syncing meanwhile.
+ * and keep syncing meanwhile. `Mail.ReadWrite` (replacing `Mail.Read`) backs
+ * Outbox drafts kept as Outlook drafts (drafts.ts); an account connected
+ * before it keeps its drafts in Kia only until it is reconnected.
  */
-export const SCOPES = ['Mail.Read', 'Mail.Send', 'Calendars.Read', 'User.Read'];
+export const SCOPES = ['Mail.ReadWrite', 'Mail.Send', 'Calendars.Read', 'User.Read'];
 
 /** What a pull yields: mail threads, then calendar occurrences. */
 export type Ms365Item = Ms365ThreadItem | CalendarItem;

@@ -148,6 +148,18 @@ describe('ms365 sender', () => {
     expect(calls[0].init.timeoutMs).toBeLessThanOrEqual(40_000);
   });
 
+  it('a formatted mail goes out as HTML', async () => {
+    const { s, calls } = sender([{ status: 202 }]);
+    await s.send(
+      { accountId: 'A' as never, kind: 'new', to: ['dana@contoso.com'], subject: 'Hi', bodyMarkdown: '**Hello**', bodyHtml: '<p><strong>Hello</strong></p>' },
+      ctx,
+    );
+    expect(JSON.parse(calls[0].init.body!).message.body).toEqual({
+      contentType: 'HTML',
+      content: '<p><strong>Hello</strong></p>',
+    });
+  });
+
   it('new mail goes through sendMail and is saved to Sent Items', async () => {
     const { s, calls } = sender([{ status: 202 }]);
     await s.send(

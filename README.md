@@ -17,7 +17,8 @@ one grant this connector needs before it activates:
 
 1. Add a Microsoft 365 account. A Microsoft sign-in window opens — the OAuth
    flow (and the app registration behind it) is owned entirely by the
-   platform. The connector requests only `Mail.Read`, `Calendars.Read` and `User.Read`, and
+   platform. The connector requests only `Mail.ReadWrite` (Kia's Outbox drafts live in your
+   Outlook Drafts), `Mail.Send`, `Calendars.Read` and `User.Read`, and
    never sees your Microsoft password; tokens live in KIAgent's encrypted
    vault and are refreshed by the platform. This extension ships **no**
    Microsoft client credentials of its own.

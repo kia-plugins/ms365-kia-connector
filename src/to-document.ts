@@ -88,9 +88,13 @@ export function isOwnerChannelMessage(m: GraphMessage, self?: string): boolean {
 export function toDocument(raw: Ms365ThreadItem): DocumentInput | DocumentInput[] | null {
   // Owner-channel mail (requests to you+kia@ and Kia's answers) is a
   // conversation with the assistant, not the user's mail — never indexed.
+  // Neither are drafts (Kia's Outbox keeps its drafts in Outlook): mail
+  // nobody has sent yet is not what was said.
   const item = {
     ...raw,
-    messages: raw.messages.filter((m) => !isOwnerChannelMessage(m, raw.selfAddress)),
+    messages: raw.messages.filter(
+      (m) => !m.isDraft && !isOwnerChannelMessage(m, raw.selfAddress),
+    ),
   };
   if (item.messages.length === 0) return null;
 

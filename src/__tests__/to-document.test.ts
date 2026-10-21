@@ -142,6 +142,21 @@ describe('owner-channel mail (Email Kia)', () => {
     expect(doc.markdown).not.toContain('Kia answer');
   });
 
+  it('drafts are not indexed, nor their files; a draft-only conversation is no document', () => {
+    const file = { '@odata.type': '#microsoft.graph.fileAttachment', name: 'a.pdf', contentType: 'application/pdf', size: 50_000 };
+    const bob = graphMsg({ id: 'M1', body: { contentType: 'text', content: 'from bob' } });
+    const draft = graphMsg({
+      id: 'D1',
+      isDraft: true,
+      body: { contentType: 'text', content: 'unsent reply' },
+      attachments: [file],
+    });
+    const docs = toDocuments(item([bob, draft]));
+    expect(Array.isArray(docs)).toBe(false);
+    expect((docs as DocumentInput).markdown).not.toContain('unsent reply');
+    expect(toDocuments(item([draft]))).toBeNull();
+  });
+
   it('without selfAddress only the header marks owner-channel mail', () => {
     const request = graphMsg({ from: me, toRecipients: [kia] });
     expect(toDocument({ ...item([request, answer]), selfAddress: undefined })).not.toBeNull();

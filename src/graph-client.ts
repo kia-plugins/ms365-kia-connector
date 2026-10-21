@@ -77,6 +77,14 @@ export class GraphApiError extends Error {
   }
 }
 
+function parseJson(text: string): unknown {
+  try {
+    return text ? JSON.parse(text) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function graphErrorCode(body: string): string | undefined {
   try {
     const code = (JSON.parse(body) as { error?: { code?: unknown } })?.error?.code;
@@ -230,13 +238,10 @@ export class GraphClient {
   }
 
   /**
-   * One outbound POST (send a reply / a new mail). NOT `request()`'s retry
-   * policy: a send is not idempotent, so a network error or 5xx — where
-   * Graph may already have accepted the message — is thrown at once, never
-   * retried. Only a 429 (rejected before processing) is retried, and only
-   * while its wait still fits the ONE overall deadline, which also bounds
-   * every attempt through the host fetch's own timeout: nothing this call
-   * started may still be in flight after it has thrown.
+   * One outbound POST (send a reply / a new mail, send a draft). A send is
+   * not idempotent, so a network error or 5xx — where Graph may already
+   * have accepted the message — is thrown at once, never retried. See
+   * `write`.
    */
   async post(
     url: string,
@@ -244,37 +249,94 @@ export class GraphClient {
     opts: { deadlineMs: number; now?: () => number },
   ): Promise<void> {
     const now = opts.now ?? Date.now;
-    const deadline = now() + opts.deadlineMs;
+    await this.write('POST', url, {
+      body,
+      deadline: now() + opts.deadlineMs,
+      idempotent: false,
+      now,
+    });
+  }
+
+  /**
+   * One write (or a read on a deadline) under ONE overall deadline, which
+   * also bounds every attempt through the host fetch's own timeout: nothing
+   * this call started may still be in flight after it has thrown. A 429
+   * (rejected before processing) is retried while its wait still fits.
+   * Network errors and 5xx are retried only when `idempotent` — a
+   * non-idempotent write may already have been applied.
+   *
+   * `raw` sends bytes as they are (an upload-session chunk); `auth: false`
+   * leaves out the bearer token (upload URLs are pre-authenticated and
+   * refuse one). Answers the parsed JSON body, or undefined when empty.
+   */
+  async write<T = unknown>(
+    method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
+    url: string,
+    opts: {
+      body?: unknown;
+      raw?: Uint8Array;
+      headers?: Record<string, string>;
+      deadline: number;
+      idempotent: boolean;
+      auth?: boolean;
+      now?: () => number;
+    },
+  ): Promise<T> {
+    const now = opts.now ?? Date.now;
+    const auth = opts.auth ?? true;
+    const timedOut = () => new Error(`graph ${method} timed out ${url}`);
     for (let attempt = 0; ; attempt++) {
-      const token = await this.getToken();
-      const remaining = deadline - now();
-      if (remaining <= 0) throw new Error(`graph send timed out ${url}`);
-      const r = (await this.fetchFn(url, {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${token}`,
-          accept: 'application/json',
-          'content-type': 'application/json',
-          prefer: IMMUTABLE_IDS,
-        },
-        body: JSON.stringify(body),
-        timeoutMs: Math.max(1, Math.floor(remaining)),
-      } as never)) as HostResponse;
-      if (r.status >= 200 && r.status < 300) return;
+      const token = auth ? await this.getToken() : '';
+      const remaining = opts.deadline - now();
+      if (remaining <= 0) throw timedOut();
+      const headers: Record<string, string> = {
+        accept: 'application/json',
+        ...(auth ? { authorization: `Bearer ${token}`, prefer: IMMUTABLE_IDS } : {}),
+        ...(opts.body !== undefined ? { 'content-type': 'application/json' } : {}),
+        ...opts.headers,
+      };
+      if (auth && opts.headers?.prefer)
+        headers.prefer = [IMMUTABLE_IDS, opts.headers.prefer].join(', ');
+      let r: HostResponse;
+      try {
+        r = (await this.fetchFn(url, {
+          method,
+          headers,
+          ...(opts.raw
+            ? { body: opts.raw }
+            : opts.body !== undefined
+              ? { body: JSON.stringify(opts.body) }
+              : {}),
+          timeoutMs: Math.max(1, Math.floor(remaining)),
+        })) as HostResponse;
+      } catch (e) {
+        if (opts.idempotent && attempt < MAX_RETRIES) {
+          const delay = this.backoff(attempt);
+          if (now() + delay + 5_000 < opts.deadline) {
+            await this.sleepFn(delay);
+            continue;
+          }
+        }
+        throw e;
+      }
+      if (r.status >= 200 && r.status < 300) {
+        return parseJson(new TextDecoder().decode(r.body)) as T;
+      }
       const full = new TextDecoder().decode(r.body);
       const text = full.slice(0, BODY_SNIPPET_CHARS);
-      if (r.status === 401) {
+      if (r.status === 401 && auth) {
         throw new Ms365AuthError(`graph 401 ${url} ${text} — reconnect the account`);
       }
-      if (r.status === 429 && attempt < MAX_RETRIES) {
+      const retryable = r.status === 429 || (opts.idempotent && r.status >= 500);
+      if (retryable && attempt < MAX_RETRIES) {
         const retryAfterS = Number(r.headers['retry-after']);
         const delay =
           Number.isFinite(retryAfterS) && retryAfterS > 0
             ? retryAfterS * 1000
             : this.backoff(attempt);
         // Leave room for the retry itself; a wait that cannot fit is
-        // surfaced as the 429 it is (the caller reports "nothing was sent").
-        if (now() + delay + 5_000 < deadline) {
+        // surfaced as the status it is.
+        if (now() + delay + 5_000 < opts.deadline) {
           await this.sleepFn(delay);
           continue;
         }
