@@ -1,12 +1,13 @@
 {
   "id": "kia.ms365",
   "name": "Microsoft 365",
-  "version": "3.3.0",
-  "engine": "^2.15.0",
+  "version": "3.4.0",
+  "engine": "^2.16.0",
   "entry": "dist/index.js",
   "caps": [
     "net",
-    "send"
+    "send",
+    "calendar.write"
   ],
   "contributes": {
     "sources": [
@@ -16,6 +17,9 @@
       }
     ],
     "senders": [
+      "ms365"
+    ],
+    "calendarWriters": [
       "ms365"
     ]
   },

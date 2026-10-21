@@ -18,7 +18,8 @@ one grant this connector needs before it activates:
 1. Add a Microsoft 365 account. A Microsoft sign-in window opens — the OAuth
    flow (and the app registration behind it) is owned entirely by the
    platform. The connector requests only `Mail.ReadWrite` (Kia's Outbox drafts live in your
-   Outlook Drafts), `Mail.Send`, `Calendars.Read` and `User.Read`, and
+   Outlook Drafts), `Mail.Send`, `Calendars.ReadWrite` (add events), `MailboxSettings.ReadWrite`
+   (Work/Personal/Kids categories) and `User.Read`, and
    never sees your Microsoft password; tokens live in KIAgent's encrypted
    vault and are refreshed by the platform. This extension ships **no**
    Microsoft client credentials of its own.
@@ -67,9 +68,10 @@ Deleted Items, Junk Email, and any folder you created.
 - Events from the calendars you pick sync with your mail and show in the
   app's **Calendar** beside any Google calendar (Settings → Calendar shows
   or hides that page; syncing is this account's business).
-- Scope: `Calendars.Read` (read-only). **Accounts connected before 3.0.0**
-  keep syncing mail only until you open the account's **···** menu →
-  **Reconnect** to add your calendar.
+- Scope: `Calendars.ReadWrite` (since 3.4.0; reading needs only `Calendars.Read`,
+  adding events needs write). **Accounts connected before 3.0.0** keep
+  syncing mail only, and before 3.4.0 cannot add events, until you open the
+  account's **···** menu → **Reconnect**.
 - The **Tracked folders** picker has a **Calendars** tab: your default
   calendar and the ones you own start ticked. Unticking a calendar removes
   its events from the index; unticking every calendar turns the calendar

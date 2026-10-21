@@ -87,10 +87,11 @@ test('a 500 on calendars throws after the mail batches were yielded', async () =
   expect(seen.flatMap((b) => b.items).some((i) => 'conversationId' in i)).toBe(true);
 });
 
-test('descriptor declares calendar.event and the scopes ask for Calendars.Read', () => {
+test('descriptor declares calendar.event and the scopes ask for Calendars.ReadWrite', () => {
   const source = createMs365Source(makeHost(graphFetch({}).fetchFn), instantClock);
   expect(source.descriptor.documentTypes).toEqual(['email.thread', 'attachment', 'calendar.event']);
-  expect(SCOPES).toContain('Calendars.Read');
+  expect(SCOPES).toContain('Calendars.ReadWrite')
+  expect(SCOPES).toContain('MailboxSettings.ReadWrite');
 });
 
 test('a personal account links the event on outlook.live.com (mail does the same)', async () => {

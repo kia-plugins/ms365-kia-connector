@@ -76,14 +76,22 @@ import type { CalendarItem, GraphCalendar } from './calendar/types';
  * consume (tenant kind and identity both come from live Graph calls instead
  * — see `connect` below) and the platform's `microsoft` OAuth provider owns
  * refresh-token issuance/rotation on its own, outside any scope this source
- * requests. `Calendars.Read` since 3.0.0: the calendar half (src/calendar).
+ * requests. `Calendars.Read` since 3.0.0: the calendar half (src/calendar);
+ * `Calendars.ReadWrite` + `MailboxSettings.ReadWrite` since 3.4.0: adding
+ * events and Work/Personal/Kids categories (src/calendar/writer.ts).
  * `Mail.Send` backs the outbound Sender (sender.ts); accounts connected
  * before it get a "reconnect to grant send permission" on their first send
  * and keep syncing meanwhile. `Mail.ReadWrite` (replacing `Mail.Read`) backs
  * Outbox drafts kept as Outlook drafts (drafts.ts); an account connected
  * before it keeps its drafts in Kia only until it is reconnected.
  */
-export const SCOPES = ['Mail.ReadWrite', 'Mail.Send', 'Calendars.Read', 'User.Read'];
+export const SCOPES = [
+  'Mail.ReadWrite',
+  'Mail.Send',
+  'Calendars.ReadWrite',
+  'MailboxSettings.ReadWrite',
+  'User.Read',
+];
 
 /** What a pull yields: mail threads, then calendar occurrences. */
 export type Ms365Item = Ms365ThreadItem | CalendarItem;
