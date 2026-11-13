@@ -256,4 +256,6 @@ test('update maps 403, 404, 429 and other 4xx', async () => {
     .rejects.toThrow('rate-limited: Outlook is busy — try again in a minute');
   await expect(run({ status: 400, body: { error: { code: 'ErrorInvalidRequest', message: 'bad range' } } }))
     .rejects.toThrow('not changed: bad range');
+  await expect(run({ status: 503, body: 'raw provider page' }))
+    .rejects.toThrow('not changed: Outlook is not answering — try again in a minute');
 });

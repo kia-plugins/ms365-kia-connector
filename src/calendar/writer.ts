@@ -161,6 +161,8 @@ export function createMs365CalendarWriter(
       }
       return new Error(`${change ? 'not changed' : 'not created'}: ${msg || e.code || `Outlook answered ${e.status}`}`);
     }
+    // A change that failed after its retries says so plainly, never with the raw response.
+    if (change) return new Error('not changed: Outlook is not answering — try again in a minute');
     return e;
   };
 
