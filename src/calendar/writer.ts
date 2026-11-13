@@ -8,6 +8,9 @@
  *    `transactionId` (derived from the intent's key), stamped with a named
  *    extended property so the indexed event keeps Kia's category.
  *
+ *  - updateEvent: `PATCH /me/events/{id}` with only the changed fields; never
+ *    a `body`, so the description is left alone.
+ *
  * Failure wording is calendar-specific on purpose: the mail sender's
  * "grant send permission" copy would mislead here.
  */
@@ -17,8 +20,10 @@ import type {
   CreatedEvent,
   EventCategory,
   EventIntent,
+  EventPatch,
   HostFor,
   SenderContext,
+  UpdatedEvent,
   WritableCalendar,
 } from '@kiagent/connector-sdk';
 import { GRAPH_BASE } from '../graph-api';
@@ -140,10 +145,12 @@ export function createMs365CalendarWriter(
     }
   };
 
-  const failure = (e: unknown): Error => {
+  const failure = (e: unknown, change = false): Error => {
     if (isAuthError(e)) return new Error('reconnect Microsoft 365 in Settings — the sign-in has expired');
     if (!(e instanceof GraphApiError)) return e instanceof Error ? e : new Error(String(e));
-    if (e.status === 403) return new Error('reconnect Microsoft 365 in Settings to allow adding events');
+    if (e.status === 403)
+      return new Error(`reconnect Microsoft 365 in Settings to allow ${change ? 'changing' : 'adding'} events`);
+    if (change && (e.status === 404 || e.status === 410)) return new Error('this event no longer exists');
     if (e.status === 429) return new Error('rate-limited: Outlook is busy — try again in a minute');
     if (e.status >= 400 && e.status < 500) {
       let msg: string | undefined;
@@ -152,7 +159,7 @@ export function createMs365CalendarWriter(
       } catch {
         /* snippet may be cut — fall back to the code */
       }
-      return new Error(`not created: ${msg || e.code || `Outlook answered ${e.status}`}`);
+      return new Error(`${change ? 'not changed' : 'not created'}: ${msg || e.code || `Outlook answered ${e.status}`}`);
     }
     return e;
   };
@@ -258,6 +265,30 @@ export function createMs365CalendarWriter(
             ? "no video link: this Outlook account can't create Teams meetings"
             : null,
       };
+    },
+
+    async updateEvent(patch: EventPatch, ctx: SenderContext): Promise<UpdatedEvent> {
+      const c = clientFor(ctx);
+      const body: Record<string, unknown> = {};
+      if (patch.title !== undefined) body.subject = patch.title;
+      if (patch.location !== undefined) body.location = { displayName: patch.location ?? '' };
+      if (patch.start !== undefined || patch.end !== undefined) {
+        const zone = toIana(patch.timeZone);
+        if (!zone) throw new Error('not changed: unknown time zone');
+        if (patch.start !== undefined) body.start = { dateTime: wallTime(patch.start, zone), timeZone: zone };
+        if (patch.end !== undefined) body.end = { dateTime: wallTime(patch.end, zone), timeZone: zone };
+      }
+      let ev: { id?: string; webLink?: string };
+      try {
+        ev = await c.write('PATCH', `${GRAPH_BASE}/me/events/${encodeURIComponent(patch.eventId)}`, {
+          body,
+          deadline: Date.now() + CREATE_DEADLINE_MS,
+          idempotent: true,
+        });
+      } catch (e) {
+        throw failure(e, true);
+      }
+      return { eventId: ev?.id ?? patch.eventId, htmlLink: ev?.webLink ?? null };
     },
   };
 }

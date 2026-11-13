@@ -1,4 +1,4 @@
-import type { EventIntent } from '@kiagent/connector-sdk';
+import type { EventIntent, EventPatch } from '@kiagent/connector-sdk';
 import { GRAPH_BASE } from '../../graph-api';
 import { instantClock, makeHost } from '../../testing/harness';
 import { createMs365CalendarWriter } from '../writer';
@@ -210,4 +210,50 @@ test('document reads category from the stamp', () => {
   expect(cat({ singleValueExtendedProperties: [stamp], categories: ['Work'] })).toBe('kids');
   expect(cat({ categories: ['Red category', 'PERSONAL'] })).toBe('personal');
   expect(cat({})).toBeNull();
+});
+
+const PATCH_OK = ['PATCH', /^\/me\/events\/EV1$/, { status: 200, body: { id: 'EV1', webLink: 'https://outlook.office.com/y' } }] as [string, RegExp, Res];
+const patchOf = (o: Partial<EventPatch> = {}): EventPatch =>
+  ({ accountId: 'A' as never, calendarId: 'CAL1', eventId: 'EV1', ...o });
+const patches = (calls: Call[]) => calls.filter((c) => c.method === 'PATCH');
+
+test('update patches only the changed fields and never a body', async () => {
+  const { w, calls, json } = graph([PATCH_OK]);
+  const r = await w.updateEvent!(patchOf({ title: 'Moved' }), ctx);
+  expect(r).toEqual({ eventId: 'EV1', htmlLink: 'https://outlook.office.com/y' });
+  expect(calls).toHaveLength(1);
+  expect(calls[0].url).toBe(`${GRAPH_BASE}/me/events/EV1`);
+  expect(json(patches(calls)[0])).toEqual({ subject: 'Moved' });
+  const loc = graph([PATCH_OK]);
+  await loc.w.updateEvent!(patchOf({ location: null }), ctx);
+  expect(loc.json(patches(loc.calls)[0])).toEqual({ location: { displayName: '' } });
+  const loc2 = graph([PATCH_OK]);
+  await loc2.w.updateEvent!(patchOf({ location: 'Room 2', title: 'T' }), ctx);
+  const b = loc2.json(patches(loc2.calls)[0]);
+  expect(b).toEqual({ subject: 'T', location: { displayName: 'Room 2' } });
+  expect(b.body).toBeUndefined();
+});
+
+test('update converts the instant into the zone wall time even when the offset differs', async () => {
+  const { w, calls, json } = graph([PATCH_OK]);
+  // 15:00Z is 17:00 in Berlin (+02:00), whatever offset the instant is written in.
+  await w.updateEvent!(patchOf({
+    start: '2026-10-22T08:00:00-07:00', end: '2026-10-22T09:30:00-07:00', timeZone: 'Europe/Berlin',
+  }), ctx);
+  expect(json(patches(calls)[0])).toEqual({
+    start: { dateTime: '2026-10-22T17:00:00', timeZone: 'Europe/Berlin' },
+    end: { dateTime: '2026-10-22T18:30:00', timeZone: 'Europe/Berlin' },
+  });
+});
+
+test('update maps 403, 404, 429 and other 4xx', async () => {
+  const run = (res: Res) => graph([['PATCH', /^\/me\/events\//, res]]).w.updateEvent!(patchOf({ title: 'x' }), ctx);
+  await expect(run({ status: 403, body: { error: { code: 'ErrorAccessDenied' } } }))
+    .rejects.toThrow('reconnect Microsoft 365 in Settings to allow changing events');
+  await expect(run({ status: 404, body: { error: { code: 'ErrorItemNotFound' } } }))
+    .rejects.toThrow('this event no longer exists');
+  await expect(run({ status: 429, body: {} }))
+    .rejects.toThrow('rate-limited: Outlook is busy — try again in a minute');
+  await expect(run({ status: 400, body: { error: { code: 'ErrorInvalidRequest', message: 'bad range' } } }))
+    .rejects.toThrow('not changed: bad range');
 });

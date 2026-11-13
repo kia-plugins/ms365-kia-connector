@@ -36,12 +36,14 @@ const mail: GraphWorld = {
   },
   conversations: { CM: [graphMsg({ conversationId: 'CM', parentFolderId: 'INBOX-ID' })] },
 };
+// Relative to now: the cursor drops events older than the retention window.
+const DAY = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
 const event = {
   id: 'EV1',
   iCalUId: 'UID1',
   subject: 'Standup',
-  start: { dateTime: '2026-10-01T09:00:00.0000000' },
-  end: { dateTime: '2026-10-01T09:15:00.0000000' },
+  start: { dateTime: `${DAY}T09:00:00.0000000` },
+  end: { dateTime: `${DAY}T09:15:00.0000000` },
 };
 const calendars = { value: [{ id: 'CAL', name: 'Calendar', isDefaultCalendar: true }] };
 
@@ -67,7 +69,7 @@ test('one pull yields mail then calendar; the last batch commits the calendar cu
   expect((source.toDocument(cal) as { type: string }).type).toBe('calendar.event');
   const last = seen[seen.length - 1];
   expect(last.cursor.calendar?.since).toBeDefined();
-  expect(last.cursor.calendar?.cals.CAL).toEqual({ EV1: '2026-10-01T09:00:00.000Z' });
+  expect(last.cursor.calendar?.cals.CAL).toEqual({ EV1: `${DAY}T09:00:00.000Z` });
   // Every earlier batch still carries the prior (absent) calendar half.
   for (const b of seen.slice(0, -1)) expect(b.cursor.calendar).toBeUndefined();
 });

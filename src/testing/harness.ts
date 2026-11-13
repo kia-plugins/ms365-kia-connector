@@ -208,6 +208,7 @@ export function makeHost(fetchFn: NetFetch): HostFor<'net'> {
   return {
     self: { id: 'kia.ms365', dataDir: '/tmp' },
     log: () => {},
+    role: { get: async () => 'normal' as never },
     net: { fetch: fetchFn },
   };
 }
@@ -232,6 +233,7 @@ export function makeSession(
       createdAt: '2026-01-01T00:00:00Z',
     } as Account,
     signal: opts.signal ?? new AbortController().signal,
+    saveCredentials: async () => {},
     credentials: async () =>
       opts.creds === undefined ? { accessToken: 'ms-test-token-deadbeef' } : opts.creds,
     log: (level, msg) => logs.push({ level, msg }),

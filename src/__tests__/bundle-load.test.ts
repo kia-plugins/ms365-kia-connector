@@ -52,6 +52,7 @@ describe('dist bundle loads standalone', () => {
     const host: HostFor<'net'> = {
       self: { id: 'kia.ms365', dataDir: '/tmp' },
       log: () => {},
+      role: { get: async () => 'normal' as never },
       net: { fetch: unused },
     };
     const result = await entry.activate(host);
