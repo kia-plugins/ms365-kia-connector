@@ -69,7 +69,7 @@ Deleted Items, Junk Email, and any folder you created.
   app's **Calendar** beside any Google calendar (Settings → Calendar shows
   or hides that page; syncing is this account's business).
 - Scope: `Calendars.ReadWrite` (since 3.4.0; reading needs only `Calendars.Read`,
-  adding events needs write). **Accounts connected before 3.0.0** keep
+  adding and changing events needs write). **Accounts connected before 3.0.0** keep
   syncing mail only, and before 3.4.0 cannot add events, until you open the
   account's **···** menu → **Reconnect**.
 - The **Tracked folders** picker has a **Calendars** tab: your default
@@ -102,8 +102,9 @@ Deleted Items, Junk Email, and any folder you created.
 
 ## Privacy
 
-- Read-only Mail and Calendar scopes; nothing is ever written to your mailbox
-  or calendar.
+- Mail is read-only apart from drafts and sending you confirm. Calendar events
+  are written only when you confirm creating or changing one in KIAgent (their
+  title, time and location; descriptions are never touched).
 - All content stays on your machine.
 - This extension ships no Microsoft OAuth client credentials and stores no
   tokens itself — the platform's Microsoft OAuth provider owns the whole
