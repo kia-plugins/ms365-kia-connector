@@ -212,7 +212,7 @@ test('document reads category from the stamp', () => {
   expect(cat({})).toBeNull();
 });
 
-const PATCH_OK = ['PATCH', /^\/me\/events\/EV1$/, { status: 200, body: { id: 'EV1', webLink: 'https://outlook.office.com/y' } }] as [string, RegExp, Res];
+const PATCH_OK = ['PATCH', /^\/me\/calendars\/CAL1\/events\/EV1$/, { status: 200, body: { id: 'EV1', webLink: 'https://outlook.office.com/y' } }] as [string, RegExp, Res];
 const patchOf = (o: Partial<EventPatch> = {}): EventPatch =>
   ({ accountId: 'A' as never, calendarId: 'CAL1', eventId: 'EV1', ...o });
 const patches = (calls: Call[]) => calls.filter((c) => c.method === 'PATCH');
@@ -222,7 +222,7 @@ test('update patches only the changed fields and never a body', async () => {
   const r = await w.updateEvent!(patchOf({ title: 'Moved' }), ctx);
   expect(r).toEqual({ eventId: 'EV1', htmlLink: 'https://outlook.office.com/y' });
   expect(calls).toHaveLength(1);
-  expect(calls[0].url).toBe(`${GRAPH_BASE}/me/events/EV1`);
+  expect(calls[0].url).toBe(`${GRAPH_BASE}/me/calendars/CAL1/events/EV1`);
   expect(json(patches(calls)[0])).toEqual({ subject: 'Moved' });
   const loc = graph([PATCH_OK]);
   await loc.w.updateEvent!(patchOf({ location: null }), ctx);
@@ -247,7 +247,7 @@ test('update converts the instant into the zone wall time even when the offset d
 });
 
 test('update maps 403, 404, 429 and other 4xx', async () => {
-  const run = (res: Res) => graph([['PATCH', /^\/me\/events\//, res]]).w.updateEvent!(patchOf({ title: 'x' }), ctx);
+  const run = (res: Res) => graph([['PATCH', /^\/me\/calendars\/CAL1\/events\//, res]]).w.updateEvent!(patchOf({ title: 'x' }), ctx);
   await expect(run({ status: 403, body: { error: { code: 'ErrorAccessDenied' } } }))
     .rejects.toThrow('reconnect Microsoft 365 in Settings to allow changing events');
   await expect(run({ status: 404, body: { error: { code: 'ErrorItemNotFound' } } }))
@@ -257,5 +257,11 @@ test('update maps 403, 404, 429 and other 4xx', async () => {
   await expect(run({ status: 400, body: { error: { code: 'ErrorInvalidRequest', message: 'bad range' } } }))
     .rejects.toThrow('not changed: bad range');
   await expect(run({ status: 503, body: 'raw provider page' }))
+    .rejects.toThrow('not changed: Outlook is not answering — try again in a minute');
+});
+
+test('update: a network failure is a plain sentence, never the URL', async () => {
+  const { w } = graph([['PATCH', /./, () => { throw new TypeError('fetch failed'); }]]);
+  await expect(w.updateEvent!(patchOf({ title: 'x' }), ctx))
     .rejects.toThrow('not changed: Outlook is not answering — try again in a minute');
 });

@@ -147,7 +147,11 @@ export function createMs365CalendarWriter(
 
   const failure = (e: unknown, change = false): Error => {
     if (isAuthError(e)) return new Error('reconnect Microsoft 365 in Settings — the sign-in has expired');
-    if (!(e instanceof GraphApiError)) return e instanceof Error ? e : new Error(String(e));
+    if (!(e instanceof GraphApiError)) {
+      // Network failure or timeout: a change says so plainly, never with the URL.
+      if (change) return new Error('not changed: Outlook is not answering — try again in a minute');
+      return e instanceof Error ? e : new Error(String(e));
+    }
     if (e.status === 403)
       return new Error(`reconnect Microsoft 365 in Settings to allow ${change ? 'changing' : 'adding'} events`);
     if (change && (e.status === 404 || e.status === 410)) return new Error('this event no longer exists');
@@ -282,7 +286,9 @@ export function createMs365CalendarWriter(
       }
       let ev: { id?: string; webLink?: string };
       try {
-        ev = await c.write('PATCH', `${GRAPH_BASE}/me/events/${encodeURIComponent(patch.eventId)}`, {
+        // Through the event's calendar, like sync and create: a shared calendar's
+        // event lives in its owner's mailbox, not under /me/events.
+        ev = await c.write('PATCH', `${GRAPH_BASE}/me/calendars/${encodeURIComponent(patch.calendarId)}/events/${encodeURIComponent(patch.eventId)}`, {
           body,
           deadline: Date.now() + CREATE_DEADLINE_MS,
           idempotent: true,
